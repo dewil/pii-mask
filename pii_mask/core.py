@@ -59,8 +59,10 @@ class Masker:
 
             candidates += [e for e in NatashaNer.shared().extract(text) if e.type in self.types]
         if extra_entities:
-            # находки аудитора не фильтруем по types: раз LLM сочла это ПД - маскируем
-            candidates += list(extra_entities)
+            # находки аудитора не фильтруем по types (раз LLM сочла это ПД - маскируем),
+            # но отбрасываем наши же артефакты: метки и фейки не должны маскироваться
+            # вторым слоем, иначе unmask разворачивает только верхний
+            candidates += [e for e in extra_entities if not self._is_own_artifact(e.text)]
 
         # уже стоящие метки и спаны внутри них неприкосновенны (идемпотентность)
         occupied = [(m.start(), m.end()) for m in LABEL_RE.finditer(text)]
@@ -123,6 +125,18 @@ class Masker:
             original = ent.key.title()  # восстанавливать именительный падеж, не случайную словоформу
         labels[placeholder] = {"type": ent.type, "original": original, "key": ent.key, "n": n}
         return placeholder
+
+    @staticmethod
+    def _is_own_artifact(s: str) -> bool:
+        from .recognizers import FAKE_EMAIL_RE
+
+        s = s.strip()
+        if LABEL_RE.search(s):
+            return True
+        if FAKE_EMAIL_RE.match(s):
+            return True
+        d = digits(s)
+        return len(d) == 11 and d[1:4] == "000"
 
     @staticmethod
     def _make_placeholder(etype: str, n: int) -> str:

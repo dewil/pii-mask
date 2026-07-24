@@ -91,3 +91,22 @@ def test_speaker_markers_untouched():
     src = "**[00:23] Спикер 2:** согласен с Иваном Петровым"
     masked, _ = m.mask(src)
     assert masked.startswith("**[00:23] Спикер 2:**")
+
+
+def test_auditor_artifacts_do_not_cascade():
+    # аудитор вернул наши же фейки/метки как "ПД" - они не должны маскироваться вторым слоем
+    from pii_mask.recognizers import Entity
+
+    m = Masker()
+    src = "тел +7 903 123-45-67, почта ivan@mail.ru, автор Иван Петров"
+    masked, mapping = m.mask(src)
+    fakes = [
+        Entity("PHONE", "+7 000 000-00-01", masked.find("+7 000"), masked.find("+7 000") + 16, "+7 000 000-00-01"),
+        Entity("EMAIL", "user1@example.com", masked.find("user1@"), masked.find("user1@") + 17, "user1@example.com"),
+        Entity("PERSON", "{{PERSON_1}}", masked.find("{{PERSON_1}}"), masked.find("{{PERSON_1}}") + 12, "{{person_1}}"),
+    ]
+    masked2, mapping2 = m.mask(masked, mapping=mapping, extra_entities=fakes)
+    assert masked2 == masked
+    assert mapping2["labels"] == mapping["labels"]
+    restored = m.unmask(masked2, mapping2)
+    assert "+7 903 123-45-67" in restored and "ivan@mail.ru" in restored
