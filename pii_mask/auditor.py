@@ -93,6 +93,7 @@ def audit(masked_text: str, timeout: float = 600.0) -> list[Entity]:
                         "messages": [{"role": "user", "content": _PROMPT + chunk}],
                         "format": _SCHEMA,
                         "stream": False,
+                        "think": False,  # для thinking-моделей (qwen3): аудит - экстракция, не рассуждение
                         "options": {"temperature": 0},
                     },
                 )
