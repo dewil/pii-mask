@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Деплой pii-mask на хост с systemd.
+# Деплой pii-mask на хост с systemd (user-units, без sudo; нужен enable-linger).
 # Хост берется из PII_MASK_HOST (ssh-алиас), дефолт "llm".
 set -euo pipefail
 
@@ -16,13 +16,13 @@ ssh "$HOST" 'cd pii-mask \
   && (test -d .venv || python3 -m venv .venv) \
   && .venv/bin/pip -q install -e .'
 
-echo "== systemd unit"
-ssh "$HOST" 'cd pii-mask \
-  && sed -e "s|__USER__|$USER|g" -e "s|__HOME__|$HOME|g" deploy/pii-mask.service \
-     | sudo tee /etc/systemd/system/pii-mask.service >/dev/null \
-  && sudo systemctl daemon-reload \
-  && sudo systemctl enable --now pii-mask \
-  && sleep 2 && systemctl is-active pii-mask'
+echo "== systemd user unit"
+ssh "$HOST" 'mkdir -p ~/.config/systemd/user \
+  && cp pii-mask/deploy/pii-mask.service ~/.config/systemd/user/ \
+  && systemctl --user daemon-reload \
+  && systemctl --user enable --now pii-mask \
+  && systemctl --user restart pii-mask \
+  && sleep 2 && systemctl --user is-active pii-mask'
 
 echo "== health"
 ssh "$HOST" 'curl -s http://127.0.0.1:8377/health/live'
