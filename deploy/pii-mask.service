@@ -1,0 +1,17 @@
+# systemd unit для микросервиса pii-mask.
+# deploy.sh подставляет __USER__ и __HOME__ и кладет в /etc/systemd/system/.
+[Unit]
+Description=pii-mask - local PII masking gateway
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__HOME__/pii-mask
+ExecStart=__HOME__/pii-mask/.venv/bin/pii-mask serve --host 127.0.0.1 --port 8377
+Restart=on-failure
+RestartSec=3
+# в stdout сервиса нет тел запросов (см. api.py) - journald безопасен
+
+[Install]
+WantedBy=multi-user.target

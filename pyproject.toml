@@ -1,0 +1,25 @@
+[project]
+name = "pii-mask"
+version = "0.1.0"
+description = "Локальный шлюз маскировки ПД перед отправкой текста в облачные LLM (mask/unmask, stateless mapping)"
+requires-python = ">=3.10"
+dependencies = [
+    "natasha>=1.6",
+    "setuptools<81",  # pymorphy2 (зависимость natasha) требует pkg_resources, из 81+ он удален
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+pii-mask = "pii_mask.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["pii_mask"]
