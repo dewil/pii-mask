@@ -71,7 +71,7 @@ def test_tg_handle():
 
 
 def test_email_not_double_matched_as_tg():
-    ents = find_format_entities("адрес ivan@mail.ru")
+    ents = find_format_entities("адрес ivan@example.org")
     assert {e.type for e in ents} == {"EMAIL"}
 
 

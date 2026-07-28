@@ -4,15 +4,15 @@ from pii_mask.core import Masker, UNKNOWN
 
 def test_roundtrip_phone_email():
     m = Masker()
-    src = "Иван: мой телефон +7 903 123-45-67, почта ivan@mail.ru"
+    src = "Иван: мой телефон +7 903 123-45-67, почта ivan@example.org"
     masked, mapping = m.mask(src)
     assert "+7 903 123-45-67" not in masked
-    assert "ivan@mail.ru" not in masked
+    assert "ivan@example.org" not in masked
     # формат-сохраняющие фейки: в тексте валидный по структуре телефон и email
     assert "@example.com" in masked
     restored = m.unmask(masked, mapping)
     assert "+7 903 123-45-67" in restored
-    assert "ivan@mail.ru" in restored
+    assert "ivan@example.org" in restored
 
 
 def test_same_entity_same_label():
@@ -98,7 +98,7 @@ def test_auditor_artifacts_do_not_cascade():
     from pii_mask.recognizers import Entity
 
     m = Masker()
-    src = "тел +7 903 123-45-67, почта ivan@mail.ru, автор Иван Петров"
+    src = "тел +7 903 123-45-67, почта ivan@example.org, автор Иван Петров"
     masked, mapping = m.mask(src)
     fakes = [
         Entity("PHONE", "+7 000 000-00-01", masked.find("+7 000"), masked.find("+7 000") + 16, "+7 000 000-00-01"),
@@ -109,4 +109,4 @@ def test_auditor_artifacts_do_not_cascade():
     assert masked2 == masked
     assert mapping2["labels"] == mapping["labels"]
     restored = m.unmask(masked2, mapping2)
-    assert "+7 903 123-45-67" in restored and "ivan@mail.ru" in restored
+    assert "+7 903 123-45-67" in restored and "ivan@example.org" in restored
