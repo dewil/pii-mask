@@ -22,6 +22,10 @@ log = logging.getLogger("pii_mask.auditor")
 OLLAMA_URL = os.environ.get("PII_MASK_OLLAMA_URL", "http://127.0.0.1:11434")
 AUDITOR_MODEL = os.environ.get("PII_MASK_AUDITOR_MODEL", "qwen3:1.7b")
 CHUNK_CHARS = 2500  # под маленький контекст CPU-модели
+# Держим модель загруженной между кусками одного документа, но не дольше:
+# дефолт Ollama - 5 минут, и все это время полтора-два гигабайта заняты впустую.
+# Ноль здесь был бы хуже дефолта - модель перезагружалась бы на каждом куске.
+KEEP_ALIVE = os.environ.get("PII_MASK_KEEP_ALIVE", "60s")
 
 _ALLOWED_TYPES = {"PERSON", "ORG", "PHONE", "EMAIL", "ADDRESS", "NICKNAME", "OTHER"}
 # ADDRESS/NICKNAME/OTHER схлопываем в PERSON-подобную метку не по типу, а по факту:
@@ -59,9 +63,21 @@ _PROMPT = """Ты аудитор персональных данных. Ниже
 """
 
 
+def _client(timeout: float) -> httpx.Client:
+    """Клиент до Ollama - всегда мимо прокси из окружения.
+
+    Ollama по определению локальная, а `ALL_PROXY=socks5h://...` (типовой случай
+    на машине с прокси-каскадом) httpx применяет ко всем схемам и разворачивает
+    транспорт прямо при создании клиента - до всякого NO_PROXY. Без socksio это
+    ImportError, который выглядит как "Ollama недоступна".
+    """
+    return httpx.Client(timeout=timeout, trust_env=False)
+
+
 def ollama_alive(timeout: float = 3.0) -> bool:
     try:
-        httpx.get(f"{OLLAMA_URL}/api/version", timeout=timeout).raise_for_status()
+        with _client(timeout) as client:
+            client.get(f"{OLLAMA_URL}/api/version").raise_for_status()
         return True
     except Exception:
         return False
@@ -83,7 +99,7 @@ def _chunks(text: str) -> list[str]:
 def audit(masked_text: str, timeout: float = 600.0) -> list[Entity]:
     """Вернуть кандидатов, найденных локальной LLM в уже замаскированном тексте."""
     found: list[Entity] = []
-    with httpx.Client(timeout=timeout) as client:
+    with _client(timeout) as client:
         for chunk in _chunks(masked_text):
             try:
                 resp = client.post(
@@ -94,6 +110,7 @@ def audit(masked_text: str, timeout: float = 600.0) -> list[Entity]:
                         "format": _SCHEMA,
                         "stream": False,
                         "think": False,  # для thinking-моделей (qwen3): аудит - экстракция, не рассуждение
+                        "keep_alive": KEEP_ALIVE,
                         "options": {"temperature": 0},
                     },
                 )
@@ -113,4 +130,20 @@ def audit(masked_text: str, timeout: float = 600.0) -> list[Entity]:
                 while start != -1:
                     found.append(Entity(etype, literal, start, start + len(literal), literal.lower()))
                     start = masked_text.find(literal, start + 1)
+        _unload(client)
     return found
+
+
+def _unload(client) -> None:
+    """Выгрузить модель из памяти сразу, не дожидаясь keep_alive.
+
+    Гигиена памяти, а не часть контракта: аудит уже отработал, и падение
+    выгрузки не повод терять результат.
+    """
+    try:
+        client.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": AUDITOR_MODEL, "keep_alive": 0},
+        ).raise_for_status()
+    except Exception as exc:
+        log.warning("не удалось выгрузить модель: %s", exc)
