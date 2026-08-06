@@ -110,3 +110,28 @@ def test_auditor_artifacts_do_not_cascade():
     assert mapping2["labels"] == mapping["labels"]
     restored = m.unmask(masked2, mapping2)
     assert "+7 903 123-45-67" in restored and "ivan@example.org" in restored
+
+
+def test_feminine_surname_restored_as_is():
+    """Женская фамилия в именительном не имеет права стать мужской.
+
+    Морфология читает "Смирнова" как родительный падеж от "Смирнов", и лемма
+    портит имя: для документа, который прочитает человек, это порча данных.
+    """
+    m = Masker()
+    # Имя отдельной строкой - именно так начинается резюме, и именно тут ломалось.
+    # В связном предложении ("Резюме: Смирнова Анна Валерьевна, аналитик") лемма
+    # совпадает с исходной формой, и баг не воспроизводится.
+    src = "Смирнова Анна Валерьевна\n\nЖенщина, 31 год"
+    masked, mapping = m.mask(src)
+    assert "Смирнова Анна Валерьевна" not in masked
+    assert "Смирнова Анна Валерьевна" in m.unmask(masked, mapping)
+
+
+def test_oblique_form_still_normalized():
+    """Косвенный падеж по-прежнему приводится к именительному - иначе развернутое
+    имя не встанет в другое место предложения."""
+    m = Masker()
+    masked, mapping = m.mask("Заявку Ивана Петрова согласовали.")
+    person = next(v for v in mapping["labels"].values() if v["type"] == "PERSON")
+    assert person["original"] == "Иван Петров"

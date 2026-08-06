@@ -143,7 +143,19 @@ class NatashaNer:
                 key = (span.normal or span.text).lower()
             except Exception:
                 key = span.text.lower()
+            # Косвенный падеж - если НИ ОДИН токен спана не в именительном.
+            # Не "все токены косвенные": морфология читает женскую фамилию
+            # "Смирнова" как родительный от "Смирнов", и строгое правило отдало бы
+            # лемму, превратив женское имя в мужское.
+            cases = [
+                (t.feats or {}).get("Case")
+                for t in doc.tokens
+                if span.start <= t.start < span.stop
+            ]
+            oblique = bool(cases) and "Nom" not in cases
             # текст берем из ОРИГИНАЛА по тем же офсетам: в теневой копии на месте
             # разметки пробелы, и попади она в спан - в mapping уехал бы не оригинал
-            out.append(Entity(etype, text[span.start:span.stop], span.start, span.stop, key))
+            out.append(
+                Entity(etype, text[span.start:span.stop], span.start, span.stop, key, oblique)
+            )
         return out

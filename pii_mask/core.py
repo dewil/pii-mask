@@ -121,7 +121,10 @@ class Masker:
         )
         placeholder = self._make_placeholder(ent.type, n)
         original = ent.text
-        if ent.type == "PERSON" and ent.text.lower() != ent.key:
+        # Лемму подставляем ТОЛЬКО для явно косвенной формы: иначе морфология
+        # портит имя - женская фамилия "Смирнова" читается как родительный от
+        # "Смирнов" и восстанавливалась бы мужской формой.
+        if ent.type == "PERSON" and ent.oblique:
             original = ent.key.title()  # восстанавливать именительный падеж, не случайную словоформу
         labels[placeholder] = {"type": ent.type, "original": original, "key": ent.key, "n": n}
         return placeholder
