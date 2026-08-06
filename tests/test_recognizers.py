@@ -61,8 +61,8 @@ def test_phone_fake_range_not_rematched():
 # --- EMAIL / TG ---
 
 def test_email():
-    ents = types_of("пиши на ivan.petrov@company.ru или в чат", "EMAIL")
-    assert [e.text for e in ents] == ["ivan.petrov@company.ru"]
+    ents = types_of("пиши на ivan.petrov@company.example или в чат", "EMAIL")
+    assert [e.text for e in ents] == ["ivan.petrov@company.example"]
 
 
 def test_tg_handle():

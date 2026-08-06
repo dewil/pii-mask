@@ -14,7 +14,7 @@ GOLDEN = Path(__file__).parent / "golden"
 _RESUME_PII = [
     "Смирнова Анна Валерьевна",
     "+7 (912) 3456789",
-    "anna.smirnova.94@mail.ru",
+    "anna.smirnova.94@mail.example",
     "Северный Торговый Банк",
     "severbank-example.ru",
     "Новосибирский государственный технический университет",
@@ -60,8 +60,8 @@ MUST_KEEP = {
 # мужской формой), она чинится отдельно и не должна прятать регрессии здесь.
 ROUNDTRIP = {
     "transcript_1.md": ["marina.k@romashka-corp.ru", "8 (916) 555-12-34"],
-    "resume_hh_1.md": ["anna.smirnova.94@mail.ru", "+7 (912) 3456789", "www.severbank-example.ru"],
-    "resume_md_1.md": ["anna.smirnova.94@mail.ru", "+7 (913) 7654321", "www.severbank-example.ru"],
+    "resume_hh_1.md": ["anna.smirnova.94@mail.example", "+7 (912) 3456789", "www.severbank-example.ru"],
+    "resume_md_1.md": ["anna.smirnova.94@mail.example", "+7 (913) 7654321", "www.severbank-example.ru"],
 }
 
 
