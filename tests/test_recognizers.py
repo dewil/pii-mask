@@ -124,3 +124,34 @@ def test_passport_with_context():
 def test_passport_without_context():
     # без слова-триггера пара чисел - не паспорт (иначе FP на любой статистике)
     assert types_of("выпустили 4509 123456 единиц", "PASSPORT") == []
+
+
+# --- URL / домен ---
+
+def test_url_employer_domain_masked():
+    """Сайт компании - такой же идентификатор, как ее название."""
+    ents = types_of("Северный Торговый Банк, Москва, www.severbank-example.ru", "URL")
+    assert [e.text for e in ents] == ["www.severbank-example.ru"]
+
+
+def test_url_with_scheme_and_path():
+    ents = types_of("Сайт https://severbank-example.ru/about устарел", "URL")
+    assert [e.text for e in ents] == ["https://severbank-example.ru/about"]
+
+
+def test_url_skips_technical_hosts():
+    """Ссылка на репозиторий или документацию - не персданные, портить текст незачем."""
+    src = "Код в github.com/dewil/pii-mask, справка docs.python.org/3/library/re.html"
+    assert types_of(src, "URL") == []
+
+
+def test_url_does_not_eat_filenames():
+    """Молдова и Парагвай владеют доменами .md и .py - имена файлов под них не отдаем."""
+    assert types_of("Правь core.py и README.md, смотри tests/test_api.py", "URL") == []
+
+
+def test_url_does_not_swallow_email():
+    ents = find_format_entities("почта hr@severbank-example.ru")
+    assert [(e.type, e.text) for e in ents if e.type == "EMAIL"] == [
+        ("EMAIL", "hr@severbank-example.ru")
+    ]

@@ -23,13 +23,13 @@ FAKE_EMAIL_SCAN_RE = re.compile(r"user\d+@example\.com", re.IGNORECASE)
 
 UNKNOWN = "[неизвестное значение]"
 
-DEFAULT_TYPES = ("PERSON", "ORG", "PHONE", "EMAIL", "CARD", "INN", "SNILS", "PASSPORT", "TG")
+DEFAULT_TYPES = ("PERSON", "ORG", "PHONE", "EMAIL", "CARD", "INN", "SNILS", "PASSPORT", "TG", "URL")
 # LOC (города/страны) сознательно не маскируем по умолчанию: в рабочих текстах
 # это чаще контекст, чем ПД, и ложные маски убивают смысл. Включается через types.
 
 _PRIORITY = {
     "EMAIL": 1, "TG": 2, "CARD": 3, "SNILS": 4, "PHONE": 5,
-    "INN": 6, "PASSPORT": 7, "PERSON": 8, "ORG": 9, "LOC": 10,
+    "INN": 6, "PASSPORT": 7, "URL": 8, "PERSON": 9, "ORG": 10, "LOC": 11,
 }
 
 

@@ -28,6 +28,30 @@ SNILS_RE = re.compile(r"(?<!\d)\d{3}-\d{3}-\d{3}[ \-]?\d{2}(?!\d)")
 PASSPORT_RE = re.compile(r"(?<!\d)\d{4} \d{6}(?!\d)")
 PASSPORT_CTX_RE = re.compile(r"паспорт\w*|сери[ия]\w*", re.IGNORECASE)
 
+# Сайт компании - такой же идентификатор, как ее название: метка {{ORG_1}} рядом
+# с живым доменом работодателя бессмысленна.
+URL_SCHEME_RE = re.compile(r"https?://[^\s<>\"'`)\]}]+", re.IGNORECASE)
+# Голый домен - только с www. или с делового домена верхнего уровня. Списка вида
+# "любой TLD" тут быть не может: ".md" и ".py" - это Молдова и Парагвай, и под
+# них попали бы имена файлов вроде core.py и README.md.
+BARE_DOMAIN_RE = re.compile(
+    r"(?<![@\w./-])(?:www\.[a-z0-9-]+(?:\.[a-z0-9-]+)*"
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:ru|com|org|net|io|co|biz|info|рф))"
+    r"(?![\w@])(?:/[^\s<>\"'`)\]}]*)?",
+    re.IGNORECASE,
+)
+# Технические ссылки персданными не являются - маскировать их значит портить текст.
+STOP_HOSTS = frozenset({
+    "github.com", "gitlab.com", "bitbucket.org", "stackoverflow.com",
+    "python.org", "docs.python.org", "wikipedia.org", "ru.wikipedia.org",
+    "habr.com", "example.com", "example.org", "example.net",
+})
+
+
+def _url_host(url: str) -> str:
+    host = re.sub(r"^https?://", "", url, flags=re.IGNORECASE).split("/")[0]
+    return host.lower().removeprefix("www.")
+
 
 def digits(s: str) -> str:
     return "".join(c for c in s if c.isdigit())
@@ -83,6 +107,13 @@ def find_format_entities(text: str) -> list[Entity]:
 
     for m in TG_RE.finditer(text):
         out.append(Entity("TG", m.group(), m.start(), m.end(), m.group().lower()))
+
+    for rx in (URL_SCHEME_RE, BARE_DOMAIN_RE):
+        for m in rx.finditer(text):
+            url = m.group().rstrip(".,;:!?")
+            if _url_host(url) in STOP_HOSTS:
+                continue
+            out.append(Entity("URL", url, m.start(), m.start() + len(url), url.lower()))
 
     for m in PHONE_RE.finditer(text):
         d = digits(m.group())
