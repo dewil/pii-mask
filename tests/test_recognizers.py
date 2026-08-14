@@ -224,15 +224,15 @@ def test_caps_fio_without_surname():
 
 
 def test_caps_patronymic_alone_is_masked():
-    """Колоночная верстка переносит ФИО по словам - хвост нельзя оставлять в тексте."""
-    ents = types_of("ИВАНОВ ПЕТР\nСЕРГЕЕВИЧ", "PERSON")
-    assert "СЕРГЕЕВИЧ" in [e.text for e in ents]
+    """Отчество, оставшееся без соседей, - все равно часть имени."""
+    ents = types_of("в графе указано\n\nСЕРГЕЕВИЧ\n\nдалее по списку", "PERSON")
+    assert [e.text for e in ents] == ["СЕРГЕЕВИЧ"]
 
 
-def test_caps_fio_not_glued_across_lines():
-    """Спан через перенос разрезал бы верстку таблицы: ловим построчно."""
+def test_caps_fio_spans_line_breaks():
+    """В потоке из PDF ФИО идет по слову на строку - без переносов правило слепо."""
     ents = types_of("ИВАНОВ ПЕТР\nСЕРГЕЕВИЧ", "PERSON")
-    assert all("\n" not in e.text for e in ents)
+    assert [e.text for e in ents] == ["ИВАНОВ ПЕТР\nСЕРГЕЕВИЧ"]
 
 
 def test_caps_heading_is_not_a_name():
@@ -332,3 +332,73 @@ def test_registry_number_is_a_requisite():
     """В отраслевом реестре номер называет организацию не хуже ОГРН."""
     ents = types_of("КРЕДИТНАЯ ОРГАНИЗАЦИЯ, рег. № 1326", "REQ")
     assert [e.text for e in ents] == ["1326"]
+
+
+def test_requisite_wrapped_after_keyword():
+    """Карточка организации верстается узкой колонкой и рвется где попало."""
+    ents = types_of("Идентификационный номер: КПП\n770801001.", "REQ")
+    assert [e.text for e in ents] == ["770801001"]
+
+
+def test_certificate_series_and_number():
+    src = "зарегистрированном до 01.07.2002, серия 77\n№ 007893219)"
+    ents = types_of(src, "REQ")
+    assert [e.text for e in ents] == ["77", "007893219"]
+
+
+def test_license_number_behind_a_phrase():
+    src = "- Генеральная лицензия на осуществление банковских операций №1326 от\n16.01.2015"
+    ents = types_of(src, "REQ")
+    assert [e.text for e in ents] == ["1326"]
+
+
+def test_registry_number_behind_a_phrase():
+    src = "Регистрационный номер кредитной организации, присвоенный Банком\nРоссии: 1326."
+    ents = types_of(src, "REQ")
+    assert [e.text for e in ents] == ["1326"]
+
+
+def test_dates_are_not_requisites():
+    """Дата - основа смысла текста, по умолчанию не трогаем (см. README про --types)."""
+    ents = find_format_entities("документ от 16.01.2015 и от 01.07.2002")
+    assert ents == []
+
+
+def test_passport_in_table_without_nearby_keyword():
+    """В таблице слово стоит в шапке колонки, а номера идут сотнями строк ниже."""
+    src = "серия, номер ДУЛ\n\n01.02.2020\n\n4509 123456\n\n15.03.2021\n\n4610 654321\n"
+    ents = types_of(src, "PASSPORT")
+    assert [e.text for e in ents] == ["4509 123456", "4610 654321"]
+
+
+def test_passport_still_needs_context_somewhere():
+    """Без единого упоминания документов пара чисел остается парой чисел."""
+    assert types_of("выпустили 4509 123456 единиц продукции", "PASSPORT") == []
+
+
+def test_surname_alone_after_full_fio_found():
+    src = "ДРОЗДЕНКО РАИСА ПЕТРОВНА в выборке\nТАЛАНОВ\nДРОЗДЕНКО\n"
+    ents = types_of(src, "PERSON")
+    assert any(e.text == "ДРОЗДЕНКО" and e.start > 20 for e in ents)
+
+
+def test_uid_without_inner_dashes():
+    """Извлечение из PDF местами теряет внутренние дефисы."""
+    ents = types_of("запись 3f2a9c14-5b6d4e719a027-1 в реестре", "UID")
+    assert len(ents) == 1
+
+
+def test_double_surname_fio():
+    ents = types_of("КОДИЛА КЕНГАНИ\nЕКАТЕРИНА\nВИТАЛЬЕВНА в списке", "PERSON")
+    assert ents and ents[0].text.startswith("КОДИЛА КЕНГАНИ")
+
+
+def test_org_in_straight_quotes_split_by_wrap():
+    ents = types_of('заемщик ООО\n"ПСКОВПРИМЕРДОР\nСТРОЙ" по договору', "ORG")
+    assert ents and "ПСКОВПРИМЕРДОР" in ents[0].text
+
+
+def test_truncated_word_masked_when_full_one_known():
+    """Верстка режет ячейку по ширине: обрезок опознается по уже найденному слову."""
+    ents = types_of("ИВАНОВ КОНСТАНТИН КОНСТАНТИНОВИЧ\nдалее\nКОНСТАНТИНОВИ", "PERSON")
+    assert any(e.text == "КОНСТАНТИНОВИ" for e in ents)

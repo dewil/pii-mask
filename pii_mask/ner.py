@@ -98,6 +98,24 @@ def _demarkup(text: str) -> str:
     return _MD_INLINE.sub(" ", text)
 
 
+_CAPS_RUN = re.compile(r"[А-ЯЁA-Z]{2,}(?:[-'][А-ЯЁA-Z]{2,})*")
+
+
+def _detitle_caps(text: str) -> str:
+    """Слова капсом - в обычный регистр (длина та же, офсеты общие).
+
+    NER учен на новостях, где имена и названия пишут обычным регистром; в реестрах
+    и шапках официальных документов их пишут прописными, и распознавание падает
+    почти в ноль. Регулярка с якорем на отчество закрывает только ФИО, у которых
+    отчество есть: "ДРОЗДЕНКО РАИСА" и "АЛЬФА-БАНК" ей не по зубам, а нормализация
+    регистра возвращает такие случаи в зону, где NER работает штатно.
+
+    В маскированный текст все равно уходит оригинал: спаны берутся по офсетам из
+    исходной строки, теневая копия нужна только тэггеру.
+    """
+    return _CAPS_RUN.sub(lambda m: m.group().capitalize(), text)
+
+
 def _terminate_lines(text: str) -> str:
     """Завершить точкой строки без знака препинания на конце (длина та же).
 
@@ -146,7 +164,12 @@ class NatashaNer:
         Masker._resolve. Обе трансформации сохраняют длину - офсеты общие.
         """
         shadow = _demarkup(text)
-        found = self._tag(text, shadow) + self._tag(text, _terminate_lines(shadow))
+        found = (
+            self._tag(text, shadow)
+            + self._tag(text, _terminate_lines(shadow))
+            + self._tag(text, _terminate_lines(_detitle_caps(shadow)))
+            + self._name_words(text)
+        )
         seen, out = set(), []
         for ent in found:
             key = (ent.type, ent.start, ent.end)
@@ -154,6 +177,24 @@ class NatashaNer:
                 continue
             seen.add(key)
             out.append(ent)
+        return out
+
+    def _name_words(self, text: str) -> list[Entity]:
+        """Одинокое слово капсом, которое словарь знает как имя или фамилию.
+
+        Последний рубеж для колонки, где ФИО стоит без отчества и без соседей:
+        тэггеру не за что зацепиться, а морфология слово узнает. Требуем, чтобы
+        слово было В СЛОВАРЕ - незнакомое здесь не трогаем, иначе под маску уйдут
+        заголовки и аббревиатуры, которых в официальном документе больше, чем имен.
+        """
+        out = []
+        for m in re.finditer(r"(?<![А-ЯЁ\w])[А-ЯЁ]{4,}(?![А-ЯЁ\w])", text):
+            parses = self._morph_vocab.parse(m.group().capitalize())
+            known = [p for p in parses if p.is_known]
+            if known and any(g in _NAME_GRAMMEMES for g in known[0].tag.grammemes):
+                out.append(
+                    Entity("PERSON", m.group(), m.start(), m.end(), m.group().lower())
+                )
         return out
 
     def _plausible(self, ent: Entity) -> bool:
