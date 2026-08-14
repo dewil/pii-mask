@@ -155,3 +155,122 @@ def test_url_does_not_swallow_email():
     assert [(e.type, e.text) for e in ents if e.type == "EMAIL"] == [
         ("EMAIL", "hr@severbank-example.ru")
     ]
+
+
+# --- ОГРН / ОГРНИП ---
+
+def make_ogrn13(base12: str) -> str:
+    return base12 + str(int(base12) % 11 % 10)
+
+
+def make_ogrn15(base14: str) -> str:
+    return base14 + str(int(base14) % 13 % 10)
+
+
+def test_ogrn13_valid():
+    ogrn = make_ogrn13("102770006732")
+    assert [e.text for e in types_of(f"ОГРН {ogrn}", "OGRN")] == [ogrn]
+
+
+def test_ogrn13_bad_checksum():
+    ogrn = make_ogrn13("102770006732")
+    bad = ogrn[:-1] + str((int(ogrn[-1]) + 1) % 10)
+    assert types_of(f"ОГРН {bad}", "OGRN") == []
+
+
+def test_ogrnip15_valid():
+    ogrnip = make_ogrn15("30477050030001")
+    assert [e.text for e in types_of(f"ОГРНИП {ogrnip}", "OGRN")] == [ogrnip]
+
+
+def test_ogrn_not_confused_with_inn():
+    """Границы по цифрам разводят типы: 13 знаков - не ИНН, 10 - не ОГРН."""
+    ogrn = make_ogrn13("102770006732")
+    assert types_of(f"реквизит {ogrn}", "INN") == []
+
+
+# --- УИД договора (758-П) ---
+
+def test_uid_uuid():
+    uid = "3f2a9c14-5b6d-4e71-9a02-7c8de1f04b95"
+    assert [e.text for e in types_of(f"УИД {uid} по договору", "UID")] == [uid]
+
+
+def test_uid_with_part_number():
+    uid = "3f2a9c14-5b6d-4e71-9a02-7c8de1f04b95-1"
+    assert [e.text for e in types_of(f"запись {uid}", "UID")] == [uid]
+
+
+def test_uid_needs_full_shape():
+    """Обрывок хеша - не УИД: иначе маска ляжет на любой технический идентификатор."""
+    assert types_of("хвост 09f4feeaa721-0 в колонке", "UID") == []
+
+
+# --- ФИО капсом и инициалами (NER их не берет) ---
+
+def test_caps_fio_full():
+    ents = types_of("субъект ИВАНОВ ПЕТР СЕРГЕЕВИЧ включен в выборку", "PERSON")
+    assert [e.text for e in ents] == ["ИВАНОВ ПЕТР СЕРГЕЕВИЧ"]
+
+
+def test_caps_fio_name_first():
+    ents = types_of("от ПЕТР СЕРГЕЕВИЧ ИВАНОВ поступило", "PERSON")
+    assert [e.text for e in ents] == ["ПЕТР СЕРГЕЕВИЧ ИВАНОВ"]
+
+
+def test_caps_fio_without_surname():
+    ents = types_of("указан ПЕТР СЕРГЕЕВИЧ в графе", "PERSON")
+    assert [e.text for e in ents] == ["ПЕТР СЕРГЕЕВИЧ"]
+
+
+def test_caps_patronymic_alone_is_masked():
+    """Колоночная верстка переносит ФИО по словам - хвост нельзя оставлять в тексте."""
+    ents = types_of("ИВАНОВ ПЕТР\nСЕРГЕЕВИЧ", "PERSON")
+    assert "СЕРГЕЕВИЧ" in [e.text for e in ents]
+
+
+def test_caps_fio_not_glued_across_lines():
+    """Спан через перенос разрезал бы верстку таблицы: ловим построчно."""
+    ents = types_of("ИВАНОВ ПЕТР\nСЕРГЕЕВИЧ", "PERSON")
+    assert all("\n" not in e.text for e in ents)
+
+
+def test_caps_heading_is_not_a_name():
+    assert types_of("АКТ ПРОВЕРКИ ПО ОТДЕЛЬНОМУ ВОПРОСУ", "PERSON") == []
+
+
+def test_caps_common_word_with_ich_is_not_patronymic():
+    """Голое 'ИЧ' в набор суффиксов не входит - иначе КИРПИЧ становится персоной."""
+    assert types_of("материал КИРПИЧ на складе", "PERSON") == []
+
+
+def test_surname_with_initials():
+    ents = types_of("Руководитель рабочей группы Страхова М.Е.", "PERSON")
+    assert [e.text for e in ents] == ["Страхова М.Е."]
+
+
+def test_initials_before_surname():
+    ents = types_of("подписал М.Е. Страхова лично", "PERSON")
+    assert [e.text for e in ents] == ["М.Е. Страхова"]
+
+
+def test_caps_surname_with_initials():
+    ents = types_of("СТРАХОВА М.Е.", "PERSON")
+    assert [e.text for e in ents] == ["СТРАХОВА М.Е."]
+
+
+def test_uid_wrapped_across_lines():
+    """В колоночной верстке УИД рвется по дефису - строгий шаблон пропускал большинство."""
+    src = "договор 3f2a9c14-5b6d-4e71-9a02-\n   7c8de1f04b95 в реестре"
+    ents = types_of(src, "UID")
+    assert len(ents) == 1 and ents[0].text.startswith("3f2a9c14")
+
+
+def test_uid_head_without_tail():
+    """Верстка теряет хвост УИД - голова из 20 знаков идентифицирует запись не хуже."""
+    ents = types_of("в графе 3f2a9c14-5b6d-4e71-9a02-\nследующая строка", "UID")
+    assert [e.text for e in ents] == ["3f2a9c14-5b6d-4e71-9a02-"]
+
+
+def test_uid_does_not_eat_date_range():
+    assert types_of("период 2019-2024 годы, бюджет 200-250", "UID") == []
