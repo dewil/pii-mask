@@ -79,14 +79,14 @@ def test_email_not_double_matched_as_tg():
 
 def test_inn10_valid():
     inn = make_inn10("770708389")
-    ents = types_of(f"ИНН {inn}", "INN")
+    ents = types_of(f"реквизит {inn} в карточке", "INN")
     assert [e.text for e in ents] == [inn]
 
 
 def test_inn10_bad_checksum():
     inn = make_inn10("770708389")
     bad = inn[:-1] + str((int(inn[-1]) + 1) % 10)
-    assert types_of(f"ИНН {bad}", "INN") == []
+    assert types_of(f"реквизит {bad} в карточке", "INN") == []
 
 
 # --- SNILS ---
@@ -169,18 +169,18 @@ def make_ogrn15(base14: str) -> str:
 
 def test_ogrn13_valid():
     ogrn = make_ogrn13("102770006732")
-    assert [e.text for e in types_of(f"ОГРН {ogrn}", "OGRN")] == [ogrn]
+    assert [e.text for e in types_of(f"реквизит {ogrn} в выписке", "OGRN")] == [ogrn]
 
 
 def test_ogrn13_bad_checksum():
     ogrn = make_ogrn13("102770006732")
     bad = ogrn[:-1] + str((int(ogrn[-1]) + 1) % 10)
-    assert types_of(f"ОГРН {bad}", "OGRN") == []
+    assert types_of(f"реквизит {bad} в выписке", "OGRN") == []
 
 
 def test_ogrnip15_valid():
     ogrnip = make_ogrn15("30477050030001")
-    assert [e.text for e in types_of(f"ОГРНИП {ogrnip}", "OGRN")] == [ogrnip]
+    assert [e.text for e in types_of(f"реквизит {ogrnip} в выписке", "OGRN")] == [ogrnip]
 
 
 def test_ogrn_not_confused_with_inn():
@@ -274,3 +274,61 @@ def test_uid_head_without_tail():
 
 def test_uid_does_not_eat_date_range():
     assert types_of("период 2019-2024 годы, бюджет 200-250", "UID") == []
+
+
+# --- реквизит рядом с ключевым словом: контрольная сумма не нужна ---
+
+def test_requisite_with_keyword_ignores_checksum():
+    """Живой случай: '(ИНН 783199667)' - девять цифр вместо десяти. Валидатор такое
+    отбрасывает, а компанию число называет ровно так же."""
+    ents = types_of("Общество (ИНН 783199667) передало сведения", "INN")
+    assert [e.text for e in ents] == ["783199667"]
+
+
+def test_requisite_keeps_keyword_visible():
+    from pii_mask.core import Masker
+    masked, _ = Masker(types=("INN",), ner=False).mask("реквизиты: ИНН 783199667")
+    assert masked == "реквизиты: ИНН {{INN_1}}"
+
+
+def test_requisite_unknown_keyword_gets_own_type():
+    ents = types_of("КПП 770801001 в карточке", "REQ")
+    assert [e.text for e in ents] == ["770801001"]
+
+
+# --- организация: форма плюс кавычки ---
+
+def test_org_form_with_quotes():
+    ents = types_of("проверка АО «АЛЬФА-ПРИМЕР»            Банк", "ORG")
+    assert [e.text for e in ents] == ["АО «АЛЬФА-ПРИМЕР»"]
+
+
+def test_org_full_form_with_quotes():
+    src = "Акционерное общество «Национальное бюро примеров» (ИНН"
+    ents = types_of(src, "ORG")
+    assert [e.text for e in ents] == ["Акционерное общество «Национальное бюро примеров»"]
+
+
+def test_org_name_propagates_to_broken_layout():
+    """Верстка режет название в таблице - но оно уже известно из полной формы."""
+    src = (
+        'договор с ООО «Эквипример Кредит»\n'
+        '3.        «Эквипример Кредит      Дополнительное соглашение №6\n'
+    )
+    ents = types_of(src, "ORG")
+    assert len(ents) >= 2
+    assert any(e.text == "Эквипример" for e in ents)
+
+
+def test_org_generic_words_do_not_propagate():
+    """Родовые слова названия по документу не разносим - иначе маска на каждом 'бюро'."""
+    src = "АО «Национальное бюро историй» ведет учет. Другое бюро отказало."
+    ents = types_of(src, "ORG")
+    assert all("Другое бюро" not in e.text for e in ents)
+    assert not any(e.text.lower() == "бюро" for e in ents)
+
+
+def test_registry_number_is_a_requisite():
+    """В отраслевом реестре номер называет организацию не хуже ОГРН."""
+    ents = types_of("КРЕДИТНАЯ ОРГАНИЗАЦИЯ, рег. № 1326", "REQ")
+    assert [e.text for e in ents] == ["1326"]
