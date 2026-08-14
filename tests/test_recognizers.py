@@ -402,3 +402,33 @@ def test_truncated_word_masked_when_full_one_known():
     """Верстка режет ячейку по ширине: обрезок опознается по уже найденному слову."""
     ents = types_of("ИВАНОВ КОНСТАНТИН КОНСТАНТИНОВИЧ\nдалее\nКОНСТАНТИНОВИ", "PERSON")
     assert any(e.text == "КОНСТАНТИНОВИ" for e in ents)
+
+
+# --- адрес и номера договоров ---
+
+def test_address_with_index_and_wrap():
+    src = "Местонахождение (юридическое/фактическое): 107078, г.\nМосква, ул. Каланчевская, д. 27."
+    ents = types_of(src, "ADDRESS")
+    assert len(ents) == 1 and ents[0].text.startswith("107078") and ents[0].text.endswith("27")
+
+
+def test_address_street_word_after_name():
+    ents = types_of("адрес 125009, г. Москва, Тверская ул., д. 1, стр. 2", "ADDRESS")
+    assert len(ents) == 1 and ents[0].text.endswith("стр. 2")
+
+
+def test_address_needs_both_anchors():
+    """Слово улицы без номера дома и наоборот - не адрес, иначе маска на любой фразе."""
+    assert types_of("шли по улице, дома 27 не нашли", "ADDRESS") == []
+    assert types_of("проект сдан, дом 5 в плане", "ADDRESS") == []
+
+
+def test_contract_number():
+    """В номере договора часто сидит обломок названия стороны."""
+    ents = types_of("по Договору №180517/01-ИУ и Договор №280206/АльфаБ-И", "REQ")
+    assert [e.text for e in ents] == ["180517/01-ИУ", "280206/АльфаБ-И"]
+
+
+def test_supplementary_agreement_number():
+    ents = types_of("Дополнительное соглашение №6 от 01.07.2013", "REQ")
+    assert [e.text for e in ents] == ["6"]

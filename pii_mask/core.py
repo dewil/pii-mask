@@ -25,7 +25,7 @@ UNKNOWN = "[неизвестное значение]"
 
 DEFAULT_TYPES = (
     "PERSON", "ORG", "PHONE", "EMAIL", "CARD", "INN", "OGRN", "UID", "REQ",
-    "SNILS", "PASSPORT", "TG", "URL",
+    "SNILS", "PASSPORT", "TG", "URL", "ADDRESS",
 )
 # LOC (города/страны) сознательно не маскируем по умолчанию: в рабочих текстах
 # это чаще контекст, чем ПД, и ложные маски убивают смысл. Включается через types.
@@ -33,7 +33,7 @@ DEFAULT_TYPES = (
 _PRIORITY = {
     "EMAIL": 1, "TG": 2, "CARD": 3, "SNILS": 4, "PHONE": 5,
     "INN": 6, "OGRN": 6, "REQ": 6, "UID": 7, "PASSPORT": 7, "URL": 8,
-    "PERSON": 9, "ORG": 10, "LOC": 11,
+    "ADDRESS": 8, "PERSON": 9, "ORG": 10, "LOC": 11,
 }
 
 
