@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 
 import httpx
 
@@ -96,6 +97,59 @@ def _chunks(text: str) -> list[str]:
     return parts
 
 
+_morph_vocab = None
+
+
+def _plausible_candidate(etype: str, text: str) -> bool:
+    """Отсев мусора аудитора теми же правилами, что и у NER.
+
+    Маленькая модель щедра на кандидатов: на резюме она предлагала должности
+    ("Ведущий системный аналитик", "Аналитик") как персон. Пропустить такое хуже,
+    чем не найти ПД: должность превращается в {{PERSON_1}}, и текст перестает
+    читаться - ровно тот вред, ради которого в NER заведены STOP_TERMS.
+
+    Два правила:
+
+    1. Родовой термин из STOP_TERMS - не сущность, кто бы его ни предложил.
+    2. PERSON обязан содержать слово, похожее на имя: либо словарь знает его как
+       имя/фамилию/отчество, либо не знает вовсе (экзотическое имя дороже лишней
+       маски). Фраза, целиком состоящая из известных нарицательных, персоной
+       не является.
+
+    Проверка морфологическая и модели не грузит: MorphVocab - это словарь pymorphy,
+    а не нейросеть NER.
+    """
+    from .ner import _NAME_GRAMMEMES, _is_stop_term
+
+    if _is_stop_term(text):
+        return False
+    if etype != "PERSON":
+        return True
+
+    # Перечисление через запятую - не человек. Модель охотно отдает целую строку
+    # ("Jira, SQL, Python") одной персоной, а маска на списке навыков уничтожает
+    # смысл абзаца. Проверяем части: родовой термин хотя бы в одной - и это список,
+    # а не имя. Только для PERSON: у организаций запятая перед формой законна
+    # ("Ромашка, ООО"), и та же проверка отбросила бы настоящее название.
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) > 1 and any(_is_stop_term(p) for p in parts):
+        return False
+
+    global _morph_vocab
+    if _morph_vocab is None:
+        from natasha import MorphVocab
+
+        _morph_vocab = MorphVocab()
+    for word in re.findall(r"[^\W\d_]{2,}", text, re.UNICODE):
+        parses = _morph_vocab.parse(word.capitalize())
+        known = [p for p in parses if p.is_known]
+        if not known:
+            return True  # слова нет в словаре - может быть редким именем
+        if any(g in _NAME_GRAMMEMES for p in known for g in p.tag.grammemes):
+            return True
+    return False
+
+
 def audit(masked_text: str, timeout: float = 600.0) -> list[Entity]:
     """Вернуть кандидатов, найденных локальной LLM в уже замаскированном тексте."""
     found: list[Entity] = []
@@ -125,6 +179,8 @@ def audit(masked_text: str, timeout: float = 600.0) -> list[Entity]:
                 if not literal or len(literal) < 2 or etype not in _ALLOWED_TYPES:
                     continue
                 etype = _TYPE_FALLBACK.get(etype, etype)
+                if not _plausible_candidate(etype, literal):
+                    continue
                 # только литеральные вхождения: модель не источник истины по офсетам
                 start = masked_text.find(literal)
                 while start != -1:

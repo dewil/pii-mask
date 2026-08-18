@@ -54,7 +54,12 @@ def cmd_mask(args: argparse.Namespace) -> int:
     mapping_path = args.mapping or f"{stem}.mapping.json"
 
     types = tuple(t.strip().upper() for t in args.types.split(",")) if args.types else DEFAULT_TYPES
-    masker = Masker(types=types, ner=not args.no_ner)
+    org_names = ()
+    if getattr(args, "org_dict", None):
+        from .recognizers import load_org_dict
+
+        org_names = load_org_dict(args.org_dict)
+    masker = Masker(types=types, ner=not args.no_ner, org_names=org_names)
     text = _read(args.file)
     mapping = _load_mapping(mapping_path)  # существующий mapping продолжаем
 
@@ -100,6 +105,9 @@ def main() -> None:
     p.add_argument("--audit", action="store_true", help="второй проход локальной LLM (Ollama)")
     p.add_argument("--no-ner", action="store_true", help="без Natasha NER (только форматные ПД)")
     p.add_argument("--types", help=f"типы через запятую (дефолт {','.join(DEFAULT_TYPES)})")
+    p.add_argument("--org-dict", dest="org_dict",
+                   help="файл со списком названий организаций (по одному на строку); "
+                        "нужен там, где у названия нет ни кавычек, ни орг-формы")
     p.set_defaults(func=cmd_mask)
 
     p = sub.add_parser("unmask", help="вернуть оригиналы в ответ модели")

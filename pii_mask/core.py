@@ -42,9 +42,16 @@ def _overlaps(a: tuple[int, int], b: tuple[int, int]) -> bool:
 
 
 class Masker:
-    def __init__(self, types: tuple[str, ...] = DEFAULT_TYPES, ner: bool = True):
+    def __init__(
+        self,
+        types: tuple[str, ...] = DEFAULT_TYPES,
+        ner: bool = True,
+        org_names: tuple[str, ...] = (),
+    ):
         self.types = set(types)
         self._use_ner = ner and bool({"PERSON", "ORG", "LOC"} & self.types)
+        # названия организаций, заданные снаружи (см. recognizers.load_org_dict)
+        self.org_names = tuple(org_names)
 
     # --- mask ---
 
@@ -57,7 +64,9 @@ class Masker:
         mapping = copy.deepcopy(mapping) if mapping else {"version": 1, "labels": {}}
         labels: dict = mapping["labels"]
 
-        candidates = [e for e in find_format_entities(text) if e.type in self.types]
+        candidates = [
+            e for e in find_format_entities(text, self.org_names) if e.type in self.types
+        ]
         if self._use_ner:
             from .ner import NatashaNer
 
