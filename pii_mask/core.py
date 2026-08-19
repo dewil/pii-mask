@@ -98,9 +98,18 @@ class Masker:
     def _resolve(candidates: list[Entity], occupied: list[tuple[int, int]]) -> list[Entity]:
         taken = list(occupied)
         accepted = []
+        # Словарь идет первым разрядом ключа, до приоритета типа: название из
+        # словаря назвал человек, и оно достовернее любой эвристики. Без этого
+        # выигрывал тип с меньшим номером - NER объявлял "Спортмастер Россия"
+        # персоной, и словарное ORG проигрывало ему пересечение.
         ordered = sorted(
             candidates,
-            key=lambda e: (_PRIORITY.get(e.type, 99), -(e.end - e.start), e.start),
+            key=lambda e: (
+                0 if e.source == "dict" else 1,
+                _PRIORITY.get(e.type, 99),
+                -(e.end - e.start),
+                e.start,
+            ),
         )
         for ent in ordered:
             span = (ent.start, ent.end)
