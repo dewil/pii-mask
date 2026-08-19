@@ -72,6 +72,18 @@ def cmd_mask(args: argparse.Namespace) -> int:
     _save_mapping(mapping_path, mapping)
     n = len(mapping["labels"])
     print(f"замаскировано сущностей: {n}; mapping: {mapping_path}", file=sys.stderr)
+
+    # Сколько записей словаря реально сработало. Без этой строки запись, не давшая
+    # ни одного совпадения, ничем себя не выдает: словарь молчит одинаково и когда
+    # он подошел к документу, и когда его составили не под этот текст.
+    if org_names:
+        used = {rec["key"] for rec in mapping["labels"].values() if rec["type"] == "ORG"}
+        hit = [nm for nm in org_names if " ".join(nm.lower().split()) in used]
+        print(f"словарь организаций: сработало {len(hit)} из {len(org_names)}", file=sys.stderr)
+        if len(hit) < len(org_names):
+            idle = [nm for nm in org_names if nm not in hit]
+            shown = ", ".join(idle[:5]) + (f" и еще {len(idle) - 5}" if len(idle) > 5 else "")
+            print(f"  не встретились в тексте: {shown}", file=sys.stderr)
     return 0
 
 
@@ -123,3 +135,7 @@ def main() -> None:
 
     args = parser.parse_args()
     sys.exit(args.func(args))
+
+
+if __name__ == "__main__":  # python -m pii_mask.cli
+    main()
