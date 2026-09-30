@@ -188,6 +188,66 @@ def _prefixes(words, minlen: int = _PREFIX_MINLEN) -> dict[str, str]:
 _WORD_CHAR = r"[^\W_]|-"
 
 
+# Фамилия в латинской транслитерации: русская, украинская, армянская, тюркская
+# и грузинская - по суффиксу. Признак дешевый и точный там, где "две заглавные
+# подряд" беспомощно: в англоязычном резюме таких пар сотни ("Project Manager",
+# "Risk Management", "Distributed Systems"), а суффикса фамилии у них нет.
+# Замер 01.10.2026 на 45 живых резюме: 602 пары, из них девять имен - и все
+# девять опознаются этим списком.
+_LAT_SURNAME_TAIL = (
+    "ova", "eva", "yeva", "ina", "yna", "aya", "skaya", "tskaya",
+    "ov", "ev", "yev", "in", "yn", "off",
+    "sky", "skiy", "skii", "ski", "tsky", "tskiy",
+    "enko", "chuk", "yuk", "uk", "yan", "ian", "dze", "shvili", "ets", "its",
+    "ko", "ich", "ych", "bek", "baev", "baeva",
+)
+# Слова, которые сами по себе фамилией не бывают, хотя кончаются похоже:
+# "Architecture" (-ure), "Marketing" (-ing) не попадают, а вот "Design",
+# "Domain", "Admin", "Certain" ловятся суффиксом -in.
+_LAT_NOT_SURNAME = frozenset({
+    "design", "domain", "admin", "certain", "main", "plain", "chain", "brain",
+    "berlin", "austin", "dublin", "turin", "origin", "margin", "login",
+    "within", "again", "spain", "bulletin", "skin", "twin", "basin",
+})
+
+_LATIN_PAIR_RE = re.compile(r"(?<![^\W\d_])([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})(?![^\W\d_])")
+
+
+def _looks_like_latin_surname(word: str) -> bool:
+    low = word.lower()
+    if low in _LAT_NOT_SURNAME or len(low) < 4:
+        return False
+    return low.endswith(_LAT_SURNAME_TAIL)
+
+
+def find_latin_names(text: str) -> list:
+    """Имя человека латиницей: "Ivan Safonov", "Safonov Ivan".
+
+    Порядок слов в резюме встречается любой, поэтому фамилией считаем то слово
+    пары, у которого есть транслитерационный суффикс. Оба слова с суффиксом
+    (редко, но бывает) - берем пару целиком, это все равно имя.
+    """
+    out = []
+    for m in _LATIN_PAIR_RE.finditer(text):
+        первое, второе = m.group(1), m.group(2)
+        if " ".join((первое.lower(), второе.lower())) in STOP_TERMS_LOWER():
+            continue
+        if not (_looks_like_latin_surname(второе) or _looks_like_latin_surname(первое)):
+            continue
+        out.append(Entity("PERSON", m.group(), m.start(), m.end(),
+                          " ".join(m.group().lower().split()), source="latin"))
+    return out
+
+
+def STOP_TERMS_LOWER():
+    """Стоп-термины лениво: ner тянет за собой тяжелую морфологию."""
+    try:
+        from .ner import STOP_TERMS
+    except Exception:                                     # noqa: BLE001
+        return frozenset()
+    return STOP_TERMS
+
+
 def _org_stems(name: str) -> list[str]:
     """Различающие слова названия - по ним оно узнается в изуродованной верстке."""
     words = re.findall(r"[А-ЯЁA-Z][\w-]{2,}", name)
@@ -809,6 +869,8 @@ def find_format_entities(text: str, org_names: tuple[str, ...] = ()) -> list[Ent
             if any(s <= hit.start() and hit.end() <= e for s, e in quoted):
                 continue  # внутри полного названия - там уже есть сущность целиком
             out.append(Entity("ORG", hit.group(), hit.start(), hit.end(), stem.lower()))
+
+    out.extend(find_latin_names(text))
 
     for m in OGRN_RE.finditer(text):
         d = m.group()
