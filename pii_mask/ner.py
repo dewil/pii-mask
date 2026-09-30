@@ -45,6 +45,22 @@ STOP_TERMS = frozenset({
     "ispring", "power point", "powerpoint", "smart", "9-box", "ии", "ис",
     "obsidian", "sqlite", "onnx", "codex", "qwen", "ktalk", "linkedin", "vk",
     "google", "telegram", "whisper", "pert", "wbs", "субд", "cv", "pdf",
+    # платформы данных и инженерия: в резюме это перечень стека. Строка стека
+    # идет сплошным перечислением через запятую, и NER метит организациями
+    # половину списка - документ приходит с метками вместо инструментов
+    # (замер 30.09.2026 на восьми живых резюме: 61 такая маска из 334).
+    # Компании, чье имя носит и продукт (Oracle, IBM, Microsoft), сюда
+    # намеренно не идут: в резюме они чаще работодатель, чем стек.
+    "hadoop", "kafka", "airflow", "informatica", "tableau", "greenplum",
+    "apache nifi", "nifi", "looker", "looker studio", "sas", "spark", "спарк",
+    "python", "java", "bigdata", "big data", "trino", "cognos", "grafana",
+    "prometheus", "superset", "dbt", "hive", "pxf", "edifact", "bpwin",
+    "aris", "erwin", "smart vista", "equation", "кхд", "нси", "уид",
+    # отраслевые аббревиатуры: инженерные системы здания, скоринг, обучение
+    "скуд", "соуэ", "bms", "cctv", "апс", "аупт", "впв", "бки",
+    "скоринг бюро", "enps", "galileo", "amadeus",
+    # обороты деловой речи, которые морфология читает как имя собственное
+    "due diligence", "presale", "пресейл", "fmcg", "пдн",
     # методологии и управленческие рамки
     "scrum", "kanban", "waterfall", "agile", "safe", "evm", "pmbok", "itil",
     "spec-driven development", "time & material", "fixed price",
@@ -124,7 +140,50 @@ def _is_stop_term(text: str) -> bool:
     if term in STOP_TERMS:
         return True
     head = _TERM_TAIL.sub("", term).strip()
-    return bool(head) and head != term and head in STOP_TERMS
+    if head and head != term and head in STOP_TERMS:
+        return True
+    return _term_with_plain_words(text, term)
+
+
+def _term_with_plain_words(original: str, term: str) -> bool:
+    """Стоп-термин плюс обычные слова вокруг него: "курс Power Point".
+
+    Перечислять такие спаны поштучно бессмысленно - их столько, сколько фраз в
+    языке. Зато у них общее устройство: известный термин, а вокруг слова со
+    строчной буквы ("курс", "офлайн", "поколение").
+
+    Регистр остатка - главное условие, без него правило съедает названия: в
+    "Ромашка SQL" остаток "Ромашка" словарь тоже знает обычным словом (цветок),
+    и спан ушел бы из масок вместе с работодателем. Название пишут с большой
+    буквы, пояснение вокруг термина - с маленькой.
+    """
+    остаток = term
+    for stop in sorted(STOP_TERMS, key=len, reverse=True):
+        if len(stop) >= 3:
+            остаток = re.sub(rf"(?<![^\W\d_]){re.escape(stop)}(?![^\W\d_])",
+                             " ", остаток)
+    if остаток == term:
+        return False                       # ни одного известного термина внутри
+    слова = re.findall(r"[^\W\d_]{3,}", остаток)
+    if not слова:
+        return True                        # спан целиком собран из терминов
+    if any(re.search(rf"(?<![^\W\d_])[А-ЯЁA-Z]{re.escape(w[1:])}", original)
+           for w in слова):
+        return False                       # слово с большой буквы - имя собственное
+    return all(_common_word(w) for w in слова)
+
+
+_COMMON_CACHE: dict[str, bool] = {}
+
+
+def _common_word(word: str) -> bool:
+    """Словарь знает слово обычным; морфологии нет - считаем, что не знает."""
+    if word not in _COMMON_CACHE:
+        try:
+            _COMMON_CACHE[word] = NatashaNer.shared().known_common_word(word)
+        except Exception:                                 # noqa: BLE001
+            _COMMON_CACHE[word] = False
+    return _COMMON_CACHE[word]
 
 
 def _demarkup(text: str) -> str:
