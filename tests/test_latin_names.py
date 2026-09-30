@@ -60,3 +60,27 @@ def test_latin_name_is_masked_consistently_across_the_document():
              "Рекомендации предоставит Ivan Safonov по запросу.\n")
     out = mask(текст)
     assert "Ivan Safonov" not in out
+
+
+@pytest.mark.parametrize("пара", [
+    "Google Sheets",          # известный термин плюс слово на -ets
+    "Atlassian Jira",         # -ian плюс термин
+    "Kotlin Coroutines",      # -in
+    "Languages Russian",      # строка "Languages" в резюме
+    "English Russian",
+    "Nazarbayev University",  # имя носит организация, а не человек
+    "Lebedev Physical",
+    "Ukrainian Fund",
+    "Cabin Monitoring",
+])
+def test_technical_and_organisation_pairs_are_not_people(пара):
+    """Ложные маски первой версии правила, снятые на живой выборке 01.10.2026.
+
+    Суффикс фамилии у соседнего слова тут настоящий, поэтому одного суффикса
+    мало: термин проверяется пословно, а организационное слово рядом
+    ("University", "Fund") означает, что имя носит не человек.
+    """
+    текст = f"Ivan Safonov\nSenior Developer\n\nSkills: {пара}, SQL.\n"
+    out = mask(текст)
+    assert пара in out, "не имя человека, а маска стоит"
+    assert "Ivan Safonov" not in out, "настоящее имя при этом должно быть закрыто"

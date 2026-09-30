@@ -205,9 +205,29 @@ _LAT_SURNAME_TAIL = (
 # "Architecture" (-ure), "Marketing" (-ing) не попадают, а вот "Design",
 # "Domain", "Admin", "Certain" ловятся суффиксом -in.
 _LAT_NOT_SURNAME = frozenset({
+    # английские слова, случайно кончающиеся как фамилия. Список набран по
+    # ложным маскам на живой выборке (01.10.2026) и по частым соседям в резюме
     "design", "domain", "admin", "certain", "main", "plain", "chain", "brain",
     "berlin", "austin", "dublin", "turin", "origin", "margin", "login",
     "within", "again", "spain", "bulletin", "skin", "twin", "basin",
+    "kotlin", "cabin", "linkedin", "bitcoin", "plugin", "protein", "captain",
+    # национальности и языки на -ian: в резюме это строка "Languages"
+    "russian", "ukrainian", "italian", "canadian", "indian", "asian",
+    "european", "australian", "brazilian", "belarusian", "georgian",
+    "armenian", "serbian", "civilian", "guardian", "median", "atlassian",
+    # английские множественные на -ets/-ts
+    "sheets", "assets", "targets", "markets", "datasets", "widgets", "tickets",
+    "budgets", "gadgets", "secrets", "streets",
+})
+
+# Английские слова, которые в паре означают организацию или предмет, а не
+# человека: "Nazarbayev University", "Lebedev Physical", "Ukrainian Fund".
+# Суффикс фамилии у соседнего слова тут настоящий - имя носит организация.
+_LAT_NOT_PERSON_NEIGHBOUR = frozenset({
+    "university", "institute", "fund", "center", "centre", "group", "systems",
+    "solutions", "technologies", "space", "home", "monitoring", "physical",
+    "school", "academy", "lab", "labs", "studio", "agency", "bank", "company",
+    "coroutines", "language", "languages", "stack", "tools", "services",
 })
 
 _LATIN_PAIR_RE = re.compile(r"(?<![^\W\d_])([A-Z][a-z]{2,})\s+([A-Z][a-z]{2,})(?![^\W\d_])")
@@ -230,7 +250,14 @@ def find_latin_names(text: str) -> list:
     out = []
     for m in _LATIN_PAIR_RE.finditer(text):
         первое, второе = m.group(1), m.group(2)
-        if " ".join((первое.lower(), второе.lower())) in STOP_TERMS_LOWER():
+        стоп = STOP_TERMS_LOWER()
+        пара = (первое.lower(), второе.lower())
+        # Термин проверяем и парой, и каждым словом: "Google Sheets" и
+        # "Atlassian Jira" распадаются на известное слово плюс слово с
+        # суффиксом, и без пословной проверки уходят в маски как люди.
+        if " ".join(пара) in стоп or any(w in стоп for w in пара):
+            continue
+        if any(w in _LAT_NOT_PERSON_NEIGHBOUR for w in пара):
             continue
         if not (_looks_like_latin_surname(второе) or _looks_like_latin_surname(первое)):
             continue
