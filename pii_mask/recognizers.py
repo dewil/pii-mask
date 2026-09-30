@@ -163,7 +163,10 @@ _ORG_GENERIC = frozenset({
 })
 
 
-def _prefixes(words, minlen: int = 6) -> dict[str, str]:
+_PREFIX_MINLEN = 6
+
+
+def _prefixes(words, minlen: int = _PREFIX_MINLEN) -> dict[str, str]:
     """Все обрезки известных слов - обрезок отображается на полное слово.
 
     Верстка PDF режет содержимое ячейки по ширине колонки: в тексте остаются
@@ -203,11 +206,12 @@ def _used_as_common_word(word: str, text: str) -> bool:
     if not word[:1].isupper():
         return True
     # Ищем по основе, а не по слову целиком: в названии стоит "Системы", а в
-    # тексте то же слово живет в другом падеже ("ремонт систем"). Две последние
-    # буквы отбрасываем как окончание, но не короче пяти знаков - у коротких
-    # основ совпадения случайны.
+    # тексте то же слово живет в другом падеже ("ремонт систем") или другой
+    # частью речи ("Транспортная" - "транспорт данных"). Порог берем тот же, с
+    # которого строятся обрезки (_prefixes): проверять надо ровно то, что
+    # правило потом разносит по документу, иначе проверка мимо.
     low = word.lower()
-    stem = low[:-2] if len(low) - 2 >= 5 else low
+    stem = low[:_PREFIX_MINLEN] if len(low) > _PREFIX_MINLEN else low
     return re.search(rf"(?<![^\W\d_]){re.escape(stem)}", text) is not None
 
 

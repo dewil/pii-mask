@@ -52,6 +52,69 @@ def _org_core(value: str) -> str:
     return core if core and " " not in core else ""
 
 
+_PAIRS = {")": "(", "»": "«", "]": "["}
+
+
+def _trim_unbalanced(ent, text: str):
+    """Срезать со спана непарные скобки и кавычки на краях.
+
+    Распознаватель иногда прихватывает знак, чья пара осталась в соседней фразе
+    ('ООО "Мобильные игровые решения)', 'БЦ "Белые сады'). Название внутри
+    найдено верно, а лишний знак утаскивает в маску кусок чужого текста и
+    оставляет висеть половину пары - документ выглядит побитым.
+
+    Режем только края и только знак без пары ВНУТРИ самого спана: закрывающая
+    скобка при открывающей внутри - часть названия, ее не трогаем.
+    """
+    start, end = ent.start, ent.end
+    body = text[start:end]
+    изменилось = True
+    while изменилось and start < end:
+        изменилось = False
+        body = text[start:end]
+        last = body[-1]
+        if last in _PAIRS and _PAIRS[last] not in body[:-1]:
+            end -= 1
+            изменилось = True
+            continue
+        first = body[0]
+        закрывающая = {v: k for k, v in _PAIRS.items()}.get(first)
+        if закрывающая and закрывающая not in body[1:]:
+            start += 1
+            изменилось = True
+            continue
+        if body[-1] == '"' and body.count('"') % 2:
+            end -= 1
+            изменилось = True
+            continue
+        if body[0] == '"' and body.count('"') % 2:
+            start += 1
+            изменилось = True
+    # Открывающая кавычка без пары внутри спана: пара обычно стоит рядом, сразу
+    # за краем ("БЦ \"Белые сады" - закрывающая в следующем слове). Расширить
+    # до нее лучше, чем срезать: иначе маска съедает название до половины, а в
+    # тексте остается висеть одинокая кавычка.
+    body = text[start:end]
+    if body.count('"') % 2 and '"' in body:
+        хвост = text[end:end + 60].split("\n")[0]
+        пара = хвост.find('"')
+        if пара >= 0:
+            end += пара + 1
+    if (start, end) == (ent.start, ent.end):
+        return ent
+    # Пустой остаток невозможен: спан состоял бы из одних скобок, а такой
+    # кандидат не рождается ни одним правилом. Но проверка дешевле разбора.
+    if start >= end:
+        return ent
+    # Ключ пересчитываем, только если он и был выведен из текста спана: у
+    # словарной находки ключ - каноническое имя из словаря, и подменять его
+    # обрезком нельзя. Без этой оговорки реестр замен показывал бы то, чего в
+    # маске нет: 'ооо мобильные игровые решения)' при маске без скобки.
+    прежний = " ".join(ent.text.lower().split())
+    key = " ".join(text[start:end].lower().split()) if ent.key == прежний else ent.key
+    return Entity(ent.type, text[start:end], start, end, key, source=ent.source)
+
+
 def normalize_for_analysis(text: str) -> str:
     """Свести типографские близнецы к простым символам, не меняя длину."""
     return _TYPO_RE.sub(lambda m: _TYPO_TWINS[m.group()], text)
@@ -484,7 +547,7 @@ class Masker:
 
         # уже стоящие метки и спаны внутри них неприкосновенны (идемпотентность)
         occupied = [(m.start(), m.end()) for m in LABEL_RE.finditer(text)]
-        accepted = self._resolve(candidates, occupied)
+        accepted = [_trim_unbalanced(e, text) for e in self._resolve(candidates, occupied)]
 
         replacements: list[tuple[int, int, str]] = []
         for ent in sorted(accepted, key=lambda e: e.start):
