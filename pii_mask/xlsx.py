@@ -5,10 +5,12 @@
 - общая таблица строк `xl/sharedStrings.xml` (`<si>`) - так пишет 1С и почти все;
 - инлайн прямо в листе (`<is>`) - реже, но встречается;
 - комментарии к ячейкам (`xl/comments*.xml`) - текст и имя автора;
-- свойства файла (`docProps/core.xml`) - кто сохранил книгу.
+- печатные колонтитулы и текст цепочек примечаний;
+- свойства файла (`docProps/core.xml`, `app.xml`, `custom.xml`).
 
-Обходятся все четыре. Числа, даты и формулы не трогаются: они лежат отдельными
-типами ячейки, ПД в них не бывает, а порча числа тихо ломает свод.
+Текст маскируется, сведения об авторах и строковые свойства очищаются без
+реестра. Числа, даты и формулы не трогаются: порча числа тихо ломает свод.
+Кэш формул может содержать ПД и пока не обрабатывается.
 
 **Незнакомая часть с текстом - отказ, а не пропуск.** Надпись на диаграмме или
 текстовое поле мы обезличивать не умеем; молча скопировать такую часть значит
@@ -28,61 +30,34 @@ from __future__ import annotations
 import re
 import zipfile
 from pathlib import Path
-from xml.sax.saxutils import escape
+from .office_xml import (T_RE as _T_RE, clear_attrs, escape as _escape,
+                         mask_values, runs_text, tag as _tag, unknown_text_parts,
+                         unescape as _unescape, write_copy)
 
-# Ссылки на символы: числовые (`&#10;` - так Excel хранит перевод строки внутри
-# ячейки) и пять именованных, которые определяет сам XML.
-_REF_RE = re.compile(r"&(?:#x([0-9A-Fa-f]+)|#(\d+)|(amp|lt|gt|quot|apos));")
-_NAMED = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
-
-
-def _unescape(text: str) -> str:
-    """Разобрать ссылки на символы за ОДИН проход.
-
-    Последовательная замена (сперва `&amp;`, потом числовые) разбирает результат
-    собственной работы: `&amp;#10;` - это литерал `&#10;`, а после двух проходов
-    он превратился бы в перевод строки. Один проход слева направо - ровно то,
-    что делает настоящий XML-парсер.
-    """
-    def one(m: re.Match) -> str:
-        if m.group(1):
-            return chr(int(m.group(1), 16))
-        if m.group(2):
-            return chr(int(m.group(2)))
-        return _NAMED[m.group(3)]
-
-    return _REF_RE.sub(one, text)
-
-
-def _escape(text: str) -> str:
-    """Экранировать текст ячейки.
-
-    Возврат каретки пишется ссылкой: сырой `\\r` XML-парсер нормализует в `\\n`
-    еще до нас, и символ потеряется молча.
-    """
-    return escape(text).replace("\r", "&#13;")
-
-
-def _tag(name: str) -> bytes:
-    """Тег с необязательным префиксом пространства имен: `<si>` и `<x:si>`."""
-    return rf"<(?:\w+:)?{name}(?:\s[^>]*)?>(.*?)</(?:\w+:)?{name}>".encode()
-
-
-# Контейнеры набора ранов <t>: ячейка в общей таблице, инлайновая ячейка листа,
-# тело комментария. Имя автора комментария - отдельный узел, не <t>.
+# Контейнеры текстовых узлов <t>: ячейка общей таблицы, ячейка листа, комментарий.
+# Автор комментария хранится отдельным узлом, без <t>.
 _ITEM_RE = {k: re.compile(_tag(k), re.S) for k in ("si", "is", "text", "author")}
-_T_RE = re.compile(rb"<(?:\w+:)?t(?:\s[^>]*)?>(.*?)</(?:\w+:)?t>|<(?:\w+:)?t(?:\s[^>]*)?/>", re.S)
-# Любой текстовый узел - чтобы заметить текст в частях, которые мы не разбираем.
-_ANY_T_RE = re.compile(rb"<(?:\w+:)?t(?:\s[^>]*)?>([^<]+)</(?:\w+:)?t>", re.S)
+# Колонтитул печати листа и текст цепочки примечаний - строкой, без <t>.
+_ITEM_RE["hf"] = re.compile(_tag("(?:odd|even|first)(?:Header|Footer)"), re.S)
+_ITEM_RE["tc"] = _ITEM_RE["text"]
+_PLAIN = {"author", "hf", "tc"}
 
-# Части, где мы умеем читать текст, в порядке обхода. Имя части листа задается
-# связями и не обязано быть sheet1.xml, поэтому берем любое.
+# Коды колонтитула: &L &C &R (часть), &P &N &D (поля), &"Шрифт,Жирный", &12, &KFF0000.
+# Маскируем только текст между ними: "&LСоколова" распознаватель как имя не увидит.
+_HF_CODE_RE = re.compile(r'(&(?:"[^"]*"|\d+|K[0-9A-Fa-f]{6}|K\d\d[+-]\d{3}|.))', re.S)
+
+# Части, где мы умеем читать текст, в порядке обхода. Лист не обязан называться sheet1.xml.
 _PART_KINDS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"^xl/sharedStrings\.xml$"), "si"),
     (re.compile(r"^xl/worksheets/[^/]+\.xml$"), "is"),
-    (re.compile(r"^xl/comments\d*\.xml$"), "author"),
+    (re.compile(r"^xl/worksheets/[^/]+\.xml$"), "hf"),
     (re.compile(r"^xl/comments\d*\.xml$"), "text"),
+    (re.compile(r"^xl/threadedComments/[^/]+\.xml$"), "tc"),
 )
+
+# Авторы примечаний: имя и учетная запись.
+_PERSONS = re.compile(r"^xl/persons/[^/]+\.xml$")
+_PERSON_ATTRS = ("displayName", "userId")
 
 # Части без пользовательского текста: разметка, оформление, связи.
 _NO_TEXT = re.compile(
@@ -90,9 +65,6 @@ _NO_TEXT = re.compile(
     r"xl/workbook\.xml|xl/calcChain\.xml|xl/sharedStrings\.xml|"
     r"xl/worksheets/|xl/comments\d*\.xml|docProps/)"
 )
-
-# Имя того, кто сохранил книгу.
-_AUTHOR_FIELDS = ("dc:creator", "cp:lastModifiedBy")
 
 
 def _sort_key(name: str) -> tuple:
@@ -112,30 +84,42 @@ def _parts(z: zipfile.ZipFile) -> list[tuple[str, str]]:
 
 def _unknown_text_parts(z: zipfile.ZipFile) -> list[str]:
     """Части с текстом, которые мы не разбираем: диаграммы, надписи, чужое."""
-    known = {n for n, _ in _parts(z)}
-    bad = []
-    for n in z.namelist():
-        if n in known or _NO_TEXT.match(n) or not n.endswith(".xml"):
-            continue
-        if any(m.group(1).strip() for m in _ANY_T_RE.finditer(z.read(n))):
-            bad.append(n)
-    return sorted(bad)
+    return unknown_text_parts(z, {n for n, _ in _parts(z)}, _NO_TEXT)
 
 
 def _item_value(body: bytes, kind: str) -> str:
-    if kind == "author":
+    if kind in _PLAIN:
         return _unescape(body.decode("utf-8"))
-    runs = [m.group(1) or b"" for m in _T_RE.finditer(body)]
-    return _unescape(b"".join(runs).decode("utf-8"))
+    return runs_text(body)
+
+
+def _item_values(body: bytes, kind: str) -> list[str]:
+    """Значения контейнера для маскировки: у колонтитула - куски текста между кодами."""
+    value = _item_value(body, kind)
+    return _HF_CODE_RE.split(value)[0::2] if kind == "hf" else [value]
 
 
 def cell_texts(path: str | Path) -> list[str]:
     """Весь текст книги, который мы умеем обезличивать, в устойчивом порядке."""
     values: list[str] = []
     with zipfile.ZipFile(path) as z:
-        for name, kind in _parts(z):
+        parts = _parts(z)
+        for name in dict.fromkeys(name for name, _ in parts):
+            blob = z.read(name)
+            containers = sorted((m.start(), m.end()) for part, kind in parts if part == name
+                                for m in _ITEM_RE[kind].finditer(blob))
+            container = 0
+            for node in _T_RE.finditer(blob):
+                if not (node.group(1) or b"").strip():
+                    continue
+                while container < len(containers) and containers[container][1] <= node.start():
+                    container += 1
+                if (container == len(containers) or containers[container][0] > node.start()
+                        or containers[container][1] < node.end()):
+                    raise ValueError("в книге есть текст вне поддерживаемого контейнера: " + name)
+        for name, kind in parts:
             for item in _ITEM_RE[kind].finditer(z.read(name)):
-                values.append(_item_value(item.group(1), kind))
+                values.extend(_item_values(item.group(1), kind))
     return values
 
 
@@ -143,40 +127,38 @@ def _rewrite_part(blob: bytes, kind: str, values: list[str], cursor: int) -> tup
     def one(match: re.Match) -> bytes:
         nonlocal cursor
         body = match.group(1)
-        new, cursor = values[cursor], cursor + 1
+        old = _item_value(body, kind)
+        if kind == "hf":
+            pieces = _HF_CODE_RE.split(old)
+            n = len(pieces[0::2])
+            pieces[0::2], cursor = values[cursor:cursor + n], cursor + n
+            new = "".join(pieces)
+        else:
+            new, cursor = values[cursor], cursor + 1
         whole = match.group(0)
         head = whole[:match.start(1) - match.start(0)]
         tail = whole[match.end(1) - match.start(0):]
 
-        if _item_value(body, kind) == new:
-            # Значение не изменилось - не трогаем: схлопывание ранов потеряло бы
-            # посимвольное оформление там, где мы ничего не маскировали.
-            return whole
+        if old == new:
+            return whole      # значение не изменилось - оформление цело
 
         payload = _escape(new).encode("utf-8")
-        if kind == "author":
+        if kind in _PLAIN:
             return head + payload + tail
 
         first = True
 
         def run(_t: re.Match) -> bytes:
             nonlocal first
+            name = _t.group(0)[1:].split(None, 1)[0].split(b">", 1)[0].rstrip(b"/")
             if not first:
-                return b"<t/>"      # рич-текст схлопываем в первый ран
+                return b"<" + name + b"/>"      # весь текст ячейки пишем в первый узел
             first = False
-            return b'<t xml:space="preserve">' + payload + b"</t>"
+            return b"<" + name + b' xml:space="preserve">' + payload + b"</" + name + b">"
 
         return head + _T_RE.sub(run, body) + tail
 
     return _ITEM_RE[kind].sub(one, blob), cursor
-
-
-def _strip_authors(blob: bytes) -> bytes:
-    """Вычистить имя того, кто сохранил книгу, из свойств файла."""
-    for field in _AUTHOR_FIELDS:
-        blob = re.sub(rf"<{field}>[^<]*</{field}>".encode(),
-                      f"<{field}></{field}>".encode(), blob)
-    return blob
 
 
 def rewrite(src: str | Path, dst: str | Path, values: list[str]) -> None:
@@ -207,12 +189,15 @@ def rewrite(src: str | Path, dst: str | Path, values: list[str]) -> None:
             blob = done.get(name) or zin.read(name)
             blob, cursor = _rewrite_part(blob, kind, values, cursor)
             done[name] = blob
-        with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
-            for info in zin.infolist():
-                blob = done.get(info.filename) or zin.read(info.filename)
-                if info.filename == "docProps/core.xml":
-                    blob = _strip_authors(blob)
-                zout.writestr(info, blob)   # прочие части - как были
+        for name in zin.namelist():
+            if _PERSONS.match(name):
+                done[name] = clear_attrs(zin.read(name), _PERSON_ATTRS)
+            elif re.match(r"^xl/comments\d*\.xml$", name):
+                blob = done.get(name, zin.read(name))
+                done[name] = _ITEM_RE["author"].sub(
+                    lambda m: m.group(0)[:m.start(1) - m.start()] + m.group(0)[m.end(1) - m.start():],
+                    blob)
+        write_copy(zin, dst, done)
 
 
 # Правовые формы: по ним книга сама объявляет, кто в ней контрагент.
@@ -328,12 +313,6 @@ def mask_workbook(src: str | Path, dst: str | Path, masker, mapping: dict | None
     if getattr(masker, "inn_needs_label", False) and not masker.trusted_numbers:
         masker.trusted_numbers = labelled_numbers(src)
 
-    masked = []
-    for value in cell_texts(src):
-        if not value.strip():
-            masked.append(value)
-            continue
-        out, mapping = masker.mask(value, mapping)
-        masked.append(out)
+    masked, mapping = mask_values(cell_texts(src), masker, mapping)
     rewrite(src, dst, masked)
     return mapping
