@@ -92,3 +92,33 @@ FAILED tests/test_office_port_xlsx.py::test_cdata_metadata_is_cleared_without_re
 FAILED tests/test_office_port_xlsx.py::test_cdata_metadata_is_cleared_without_registry_entries[custom-string]
 8 failed, 23 deselected in 0.31s
 ```
+
+## Дополнительный RED: стандартные self-closing свойства Word
+
+`tests/test_office_port_docx.py::test_standard_self_closing_properties_do_not_abort_masking`.
+Минимальная фикстура: стандартный app namespace и `<Manager/><Company/><Pages>1</Pages>`.
+Сведено из docProps/app.xml разрешенного синтетического smoke-пакета
+`/tmp/pii-office-smoke-20261009/source.docx`, построенного на установленном публичном
+`/home/dwl/.local/lib/python3.12/site-packages/docx/templates/default.docx`.
+Клиентские файлы не читались. Полный бинарный шаблон не копируется в репозиторий.
+
+Родитель наблюдал AttributeError полного smoke до исправления. К моменту записи
+теста implementer уже исправил сбой. Поэтому RED воспроизведен на отдельной копии
+пакета в `/tmp/office-selfclosing-baseline-*`, где только office_xml.py заменен
+восстановленной implementer pre-fix версией `/tmp/pii-office-expat-pre-selfclosing-fix.py`.
+Исходники test-writer не читал; копирование автоматическое. Рабочий код не откатывался.
+Это восстановленный pre-fix RED, а не запуск теста до исходной правки.
+
+Команда в изолированном каталоге: `PYTHONPATH=<isolated-root> /data/git/pii-mask/.venv/bin/python -m pytest test_office_port_docx.py::test_standard_self_closing_properties_do_not_abort_masking -q --tb=line`.
+Результат **1 failed**, AttributeError; актуальный worktree тем же тестом дает **1 passed**.
+Проверки сохраняют технический Pages и успешную маскировку тела/реестр.
+
+```text
+F                                                                        [100%]
+=================================== FAILURES ===================================
+E   AttributeError: 'NoneType' object has no attribute 'group'
+/tmp/office-selfclosing-baseline-4srvulm_/pii_mask/office_xml.py:98: AttributeError: 'NoneType' object has no attribute 'group'
+=========================== short test summary info ============================
+FAILED test_office_port_docx.py::test_standard_self_closing_properties_do_not_abort_masking
+1 failed in 0.15s
+```

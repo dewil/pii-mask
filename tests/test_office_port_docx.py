@@ -256,3 +256,22 @@ def test_cdata_metadata_is_cleared_without_registry_entries(tmp_path, part, xml)
         assert tree.find('Pages').text == '2'
     if part.endswith('custom.xml'):
         assert tree.find('.//{v}i4').text == '7'
+
+
+def test_standard_self_closing_properties_do_not_abort_masking(tmp_path):
+    """Reduced from installed python-docx default.docx via synthetic smoke package.
+
+    Source: /home/dwl/.local/lib/python3.12/site-packages/docx/templates/default.docx;
+    intermediate /tmp/pii-office-smoke-20261009/source.docx. No client data.
+    """
+    app = ('<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
+           '<Manager/><Company/><Pages>1</Pages></Properties>')
+    src = _docx(tmp_path / 'src.docx', [_para(['demo@example.org'])], {'docProps/app.xml': app})
+    dst = tmp_path / 'out.docx'
+    mapping = docx.mask_document(src, dst, Masker(types=('EMAIL',)))
+    with zipfile.ZipFile(dst) as archive:
+        assert archive.testzip() is None
+        props = ET.fromstring(archive.read('docProps/app.xml'))
+    assert props.find('{http://schemas.openxmlformats.org/officeDocument/2006/extended-properties}Pages').text == '1'
+    assert 'demo@example.org' not in ''.join(docx.paragraph_texts(dst))
+    assert len(mapping['labels']) == 1
