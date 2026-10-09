@@ -43,8 +43,9 @@ _ITEM_RE["tc"] = _ITEM_RE["text"]
 _PLAIN = {"author", "hf", "tc"}
 
 # Коды колонтитула: &L &C &R (часть), &P &N &D (поля), &"Шрифт,Жирный", &12, &KFF0000.
-# Маскируем только текст между ними: "&LСоколова" распознаватель как имя не увидит.
+# Секции и динамические поля разделяют текст, оформление внутри фразы - нет.
 _HF_CODE_RE = re.compile(r'(&(?:"[^"]*"|\d+|K[0-9A-Fa-f]{6}|K\d\d[+-]\d{3}|.))', re.S)
+_HF_INLINE_RE = re.compile(r'&(?:"[^"]*"|\d+|K[0-9A-Fa-f]{6}|K\d\d[+-]\d{3}|[BIUESXYOH])\Z')
 
 # Части, где мы умеем читать текст, в порядке обхода. Лист не обязан называться sheet1.xml.
 _PART_KINDS: tuple[tuple[re.Pattern, str], ...] = (
@@ -93,10 +94,47 @@ def _item_value(body: bytes, kind: str) -> str:
     return runs_text(body)
 
 
+def _header_units(value: str) -> list[list[tuple[int, int, str]]]:
+    """Непрерывный видимый текст колонтитула и позиции его кусков между кодами."""
+    units: list[list[tuple[int, int, str]]] = [[]]
+    cursor = 0
+    for code in _HF_CODE_RE.finditer(value):
+        if code.start() > cursor:
+            units[-1].append((cursor, code.start(), value[cursor:code.start()]))
+        if code.group() == "&&":
+            units[-1].append((code.start(), code.end(), "&"))
+        elif not _HF_INLINE_RE.fullmatch(code.group()):
+            if not units[-1]:
+                units[-1].append((code.start(), code.start(), ""))
+            units.append([])
+        cursor = code.end()
+    if cursor < len(value):
+        units[-1].append((cursor, len(value), value[cursor:]))
+    if not units[-1]:
+        units[-1].append((len(value), len(value), ""))
+    return units
+
+
+def _rewrite_header(value: str, values: list[str], cursor: int) -> tuple[str, int]:
+    edits: list[tuple[int, int, str]] = []
+    for unit in _header_units(value):
+        new, cursor = values[cursor], cursor + 1
+        if new != "".join(text for _, _, text in unit):
+            for i, (start, end, _text) in enumerate(unit):
+                # Схлопываем измененную фразу в первый кусок, сохраняя все коды.
+                edits.append((start, end, new.replace("&", "&&") if i == 0 else ""))
+    out, position = [], 0
+    for start, end, text in edits:
+        out.extend((value[position:start], text))
+        position = end
+    out.append(value[position:])
+    return "".join(out), cursor
+
+
 def _item_values(body: bytes, kind: str) -> list[str]:
-    """Значения контейнера для маскировки: у колонтитула - куски текста между кодами."""
+    """Значения контейнера для маскировки; оформление не разрывает фразу."""
     value = _item_value(body, kind)
-    return _HF_CODE_RE.split(value)[0::2] if kind == "hf" else [value]
+    return ["".join(text for _, _, text in unit) for unit in _header_units(value)] if kind == "hf" else [value]
 
 
 def cell_texts(path: str | Path) -> list[str]:
@@ -129,10 +167,7 @@ def _rewrite_part(blob: bytes, kind: str, values: list[str], cursor: int) -> tup
         body = match.group(1)
         old = _item_value(body, kind)
         if kind == "hf":
-            pieces = _HF_CODE_RE.split(old)
-            n = len(pieces[0::2])
-            pieces[0::2], cursor = values[cursor:cursor + n], cursor + n
-            new = "".join(pieces)
+            new, cursor = _rewrite_header(old, values, cursor)
         else:
             new, cursor = values[cursor], cursor + 1
         whole = match.group(0)

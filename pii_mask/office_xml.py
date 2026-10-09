@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import zipfile
 from pathlib import Path
+from xml.parsers import expat
 from xml.sax.saxutils import escape as _sax_escape
 
 # Ссылки на символы: числовые (`&#10;` - перевод строки в ячейке) и пять именованных из XML.
@@ -12,6 +13,11 @@ _NAMED = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'"}
 
 # Кавычки ограничивают значение атрибута: символ > внутри них не закрывает тег.
 ATTRS = rb'''(?:\s+(?:[^>"']|"[^"]*"|'[^']*')*)?'''
+_OPEN_TAG_RE = re.compile(rb"<[\w:.-]+" + ATTRS + rb"/?>")
+_XML_TOKEN_RE = re.compile(
+    rb"<!\[CDATA\[.*?\]\]>|<!--.*?-->|<\?.*?\?>|(?P<tag>" + _OPEN_TAG_RE.pattern + rb")", re.S)
+_ATTRIBUTE_RE = re.compile(
+    rb'''(?P<name>[\w:.-]+)\s*=\s*(?P<quote>["'])(?P<value>.*?)(?P=quote)''', re.S)
 
 # Текстовый узел <t> (в Word - <w:t>), в том числе пустой <t/>: он узел не открывает.
 T_RE = re.compile(rb"<(?:\w+:)?t" + ATTRS + rb"(?<!/)>(.*?)</(?:\w+:)?t>|<(?:\w+:)?t" + ATTRS + rb"/>", re.S)
@@ -79,19 +85,48 @@ def unknown_text_parts(z: zipfile.ZipFile, known: set[str], no_text: re.Pattern)
 
 def strip_properties(name: str, blob: bytes) -> bytes:
     """Вычистить из свойств файла поля, где бывают имена."""
-    for field in _PROPERTY_FIELDS.get(name, ()):
-        # Match by local name, keeping prefixes, attributes and technical values.
-        rx = rb"(<(?P<name>(?:\w+:)?" + field.encode() + rb")" + ATTRS + rb"(?<!/)>)[^<]*(</(?P=name)>)"
-        blob = re.sub(rx, rb"\1\3", blob)
-    return blob
+    fields = _PROPERTY_FIELDS.get(name, ())
+    if not fields:
+        return blob
+    parser = expat.ParserCreate()
+    stack: list[int | None] = []
+    edits: list[tuple[int, int]] = []
+
+    def start(tag_name: str, _attrs: dict) -> None:
+        opening = _OPEN_TAG_RE.match(blob, parser.CurrentByteIndex)
+        # Expat reports the end of <tag/> after the tag; it has no body to clear.
+        selected = tag_name.split(":")[-1] in fields and not opening.group().endswith(b"/>")
+        stack.append(opening.end() if selected else None)
+
+    def end(_tag_name: str) -> None:
+        body_start = stack.pop()
+        if body_start is not None:
+            edits.append((body_start, parser.CurrentByteIndex))
+
+    parser.StartElementHandler, parser.EndElementHandler = start, end
+    # Byte offsets preserve all surrounding XML; CDATA contents are never tags.
+    parser.Parse(blob, True)
+    out, cursor = [], 0
+    for start_, end_ in sorted(edits, key=lambda e: (e[0], -e[1])):
+        if start_ >= cursor:
+            out.append(blob[cursor:start_])
+            cursor = end_
+    out.append(blob[cursor:])
+    return b"".join(out)
 
 
 def clear_attrs(blob: bytes, names: tuple[str, ...]) -> bytes:
     """Опустошить значения атрибутов с этими именами, с любым префиксом."""
-    alts = "|".join(names)
-    rx = rf"""(\s(?:\w+:)?(?:{alts})\s*=\s*)(?:"[^"]*"|'[^']*')""".encode()
-    tags = rb"<[\w:]+" + ATTRS + rb">"
-    return re.sub(tags, lambda m: re.sub(rx, rb'\1""', m.group(0)), blob)
+    def attr(m: re.Match) -> bytes:
+        if m.group("name").decode().split(":")[-1] not in names:
+            return m.group(0)
+        return m.group(0)[:m.start("value") - m.start()] + m.group(0)[m.end("value") - m.start():]
+
+    def token(m: re.Match) -> bytes:
+        return _ATTRIBUTE_RE.sub(attr, m.group()) if m.group("tag") else m.group()
+
+    # Consume every attribute as a whole; literals inside another value are data.
+    return _XML_TOKEN_RE.sub(token, blob)
 
 
 def write_copy(zin: zipfile.ZipFile, dst: str | Path, done: dict[str, bytes]) -> None:
