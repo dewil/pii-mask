@@ -2,7 +2,7 @@
 
 Дата: 2026-10-09. Задача: SEL-2026-10-09-pii-office-port.
 Ветка: `feat/office-fork-port`, worktree: `/data/git/pii-mask-office-port`.
-Спецификация: `2026-10-09-spec-office-port.md`; независимый RED:
+Спецификация: [спека в папке проекта pii-mask](</home/dwl/Work/pii-mask/docs/done/2026-10-09-spec-office-port.md>); независимый RED:
 `office-port-red.md`. Независимая сверка и интеграция следуют после реализации.
 
 ## Изменения

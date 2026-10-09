@@ -6,7 +6,7 @@
 прогона отвечают кодом 0.
 
 Наборов два, и различает их строгость к организациям, а не список типов
-(довод - в docs/dev/2026-09-29-spec-presets.md).
+(довод - в ~/Work/pii-mask/docs/done/2026-09-29-spec-presets.md).
 """
 import subprocess
 import sys
