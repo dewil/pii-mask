@@ -219,3 +219,40 @@ def test_metadata_cleanup_creates_no_registry_entries(tmp_path):
         tree = ET.fromstring(archive.read('docProps/custom.xml'))
         assert 'demo@example.org' not in ''.join(tree.itertext())
         assert tree.find('.//{v}i4').text == '7'
+
+
+def test_author_literal_inside_field_instruction_is_preserved(tmp_path):
+    """An author-like literal inside another XML attribute is field content."""
+    instruction = 'HYPERLINK &quot;https://example.org&quot; \\o &quot; author=\'keep\' &quot;'
+    para = ('<w:p><w:ins w:author="Synthetic Reviewer" w:id="12">'
+            '<w:r><w:t>demo@example.org</w:t></w:r></w:ins>'
+            f'<w:fldSimple w:instr="{instruction}"><w:r><w:t>Link</w:t></w:r>'
+            '</w:fldSimple></w:p>')
+    tree = ET.fromstring(_masked_body(tmp_path, [para], ('EMAIL',)))
+    assert tree.find('.//' + W + 'fldSimple').get(W + 'instr') == (
+        'HYPERLINK "https://example.org" \\o " author=\'keep\' "')
+    assert not tree.find('.//' + W + 'ins').get(W + 'author')
+    assert 'demo@example.org' not in ''.join(tree.itertext())
+
+
+@pytest.mark.parametrize('part,xml', [
+    ('docProps/core.xml', '<coreProperties xmlns:dc="http://purl.org/dc/elements/1.1/">'
+     '<dc:title><![CDATA[demo@example.org]]></dc:title></coreProperties>'),
+    ('docProps/app.xml', '<Properties><Company><![CDATA[demo@example.org]]></Company>'
+     '<Pages>2</Pages></Properties>'),
+    ('docProps/custom.xml', '<Properties xmlns:vt="v"><property name="Contact" pid="2">'
+     '<vt:lpwstr><![CDATA[demo@example.org]]></vt:lpwstr></property>'
+     '<property name="Count" pid="3"><vt:i4>7</vt:i4></property></Properties>'),
+], ids=['core-title', 'app-company', 'custom-string'])
+def test_cdata_metadata_is_cleared_without_registry_entries(tmp_path, part, xml):
+    src = _docx(tmp_path / 'src.docx', [_para(['Visible'])], {part: xml})
+    dst = tmp_path / 'out.docx'
+    mapping = docx.mask_document(src, dst, Masker(types=('EMAIL',)))
+    assert not mapping['labels']
+    with zipfile.ZipFile(dst) as archive:
+        tree = ET.fromstring(archive.read(part))
+    assert 'demo@example.org' not in ''.join(tree.itertext())
+    if part.endswith('app.xml'):
+        assert tree.find('Pages').text == '2'
+    if part.endswith('custom.xml'):
+        assert tree.find('.//{v}i4').text == '7'

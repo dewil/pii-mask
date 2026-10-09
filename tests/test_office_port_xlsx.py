@@ -133,3 +133,44 @@ def test_legacy_comment_author_is_cleared_without_restorable_identity(tmp_path):
     comment = tree.find('commentList/comment')
     assert comment.get('authorId') == '0' and comment.get('ref') == 'A1'
     assert ''.join(comment.find('text').itertext()) == 'Review totals'
+
+
+def test_email_split_by_header_formatting_is_masked(tmp_path):
+    sheet = ('<worksheet><sheetData/><headerFooter><oddHeader>'
+             '&amp;Ldemo@&amp;Bexample.org&amp;B</oddHeader></headerFooter></worksheet>')
+    src = _with_parts(_book(tmp_path, shared=['Visible']), {'xl/worksheets/sheet1.xml': sheet})
+    dst = tmp_path / 'out.xlsx'
+    mapping = xlsx.mask_workbook(src, dst, Masker(types=('EMAIL',)))
+    with zipfile.ZipFile(dst) as archive:
+        header = ET.fromstring(archive.read('xl/worksheets/sheet1.xml')).find('.//oddHeader').text
+    assert header.startswith('&L') and header.count('&B') == 2
+    displayed = header.replace('&L', '').replace('&B', '')
+    assert 'demo@example.org' not in displayed
+    email_records = {label: entry for label, entry in mapping['labels'].items() if entry['type'] == 'EMAIL'}
+    assert len(email_records) == 1
+    label, entry = next(iter(email_records.items()))
+    assert entry['original'] == 'demo@example.org'
+    assert displayed == label
+
+
+@pytest.mark.parametrize('part,xml', [
+    ('docProps/core.xml', '<coreProperties xmlns:dc="http://purl.org/dc/elements/1.1/">'
+     '<dc:title><![CDATA[demo@example.org]]></dc:title></coreProperties>'),
+    ('docProps/app.xml', '<Properties><Company><![CDATA[demo@example.org]]></Company>'
+     '<Pages>2</Pages></Properties>'),
+    ('docProps/custom.xml', '<Properties xmlns:vt="v"><property name="Contact" pid="2">'
+     '<vt:lpwstr><![CDATA[demo@example.org]]></vt:lpwstr></property>'
+     '<property name="Count" pid="3"><vt:i4>7</vt:i4></property></Properties>'),
+], ids=['core-title', 'app-company', 'custom-string'])
+def test_cdata_metadata_is_cleared_without_registry_entries(tmp_path, part, xml):
+    src = _with_parts(_book(tmp_path, shared=['Visible']), {part: xml})
+    dst = tmp_path / 'out.xlsx'
+    mapping = xlsx.mask_workbook(src, dst, Masker(types=('EMAIL',)))
+    assert not mapping['labels']
+    with zipfile.ZipFile(dst) as archive:
+        tree = ET.fromstring(archive.read(part))
+    assert 'demo@example.org' not in ''.join(tree.itertext())
+    if part.endswith('app.xml'):
+        assert tree.find('Pages').text == '2'
+    if part.endswith('custom.xml'):
+        assert tree.find('.//{v}i4').text == '7'
