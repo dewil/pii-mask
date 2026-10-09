@@ -228,3 +228,30 @@ FAILED tests/test_office_port_xlsx.py::test_workbook_properties_cleared_without_
 FAILED tests/test_office_port_xlsx.py::test_text_outside_supported_cell_container_refuses
 20 failed, 2 passed, 1 warning in 1.68s
 ```
+
+## Дополнительный RED: автор обычного комментария XLSX
+
+Независимый тест `tests/test_office_port_xlsx.py::test_legacy_comment_author_is_cleared_without_restorable_identity`.
+Только искусственная identity `demo@example.org`; ожидается очистка без восстановления,
+сохранение `authorId="0"`, `ref="A1"` и текста комментария. Режим EMAIL выбран явно,
+чтобы очистка авторства не зависела от распознавания ФИО.
+
+Изоляция от параллельной реализации: новые `test_office_port_xlsx.py` и существующий
+`test_xlsx.py` скопированы во временный каталог `/tmp/office-author-red-*`;
+pytest запущен из этого каталога с `PYTHONPATH=/data/git/pii-mask` и интерпретатором
+`/data/git/pii-mask/.venv/bin/python`, точный nodeid указан выше. Исходная реализация
+не читалась и не изменялась. Результат: **1 failed**; старый код создает запись
+реестра, восстанавливающую identity автора, вместо безвозвратной очистки.
+
+```text
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_legacy_comment_author_is_cleared_without_restorable_identity _______
+test_office_port_xlsx.py:129: in test_legacy_comment_author_is_cleared_without_restorable_identity
+    assert not mapping['labels'], 'Metadata removal must not create restorable identity records'
+E   AssertionError: Metadata removal must not create restorable identity records
+E   assert not {'user1@example.com': {'type': 'EMAIL', 'original': 'demo@example.org', 'key': 'demo@example.org', 'n': 1}}
+=========================== short test summary info ============================
+FAILED test_office_port_xlsx.py::test_legacy_comment_author_is_cleared_without_restorable_identity
+1 failed in 0.13s
+```

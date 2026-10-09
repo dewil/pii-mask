@@ -116,3 +116,20 @@ def test_text_outside_supported_cell_container_refuses(tmp_path):
     })
     with pytest.raises(ValueError):
         xlsx.mask_workbook(src, tmp_path / 'out.xlsx', Masker(types=('EMAIL',)))
+
+
+def test_legacy_comment_author_is_cleared_without_restorable_identity(tmp_path):
+    """Synthetic author identity must be cleared, even when PERSON is disabled."""
+    comments = ('<comments><authors><author>demo@example.org</author></authors>'
+                '<commentList><comment ref="A1" authorId="0"><text><t>Review totals</t>'
+                '</text></comment></commentList></comments>')
+    src = _with_parts(_book(tmp_path, shared=['Visible']), {'xl/comments1.xml': comments})
+    dst = tmp_path / 'out.xlsx'
+    mapping = xlsx.mask_workbook(src, dst, Masker(types=('EMAIL',)))
+    assert not mapping['labels'], 'Metadata removal must not create restorable identity records'
+    with zipfile.ZipFile(dst) as archive:
+        tree = ET.fromstring(archive.read('xl/comments1.xml'))
+    assert not ''.join(tree.find('authors').itertext()).strip()
+    comment = tree.find('commentList/comment')
+    assert comment.get('authorId') == '0' and comment.get('ref') == 'A1'
+    assert ''.join(comment.find('text').itertext()) == 'Review totals'
