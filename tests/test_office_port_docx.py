@@ -261,7 +261,7 @@ def test_cdata_metadata_is_cleared_without_registry_entries(tmp_path, part, xml)
 def test_standard_self_closing_properties_do_not_abort_masking(tmp_path):
     """Reduced from installed python-docx default.docx via synthetic smoke package.
 
-    Source: /home/dwl/.local/lib/python3.12/site-packages/docx/templates/default.docx;
+    Source: python-docx package, docx/templates/default.docx;
     intermediate /tmp/pii-office-smoke-20261009/source.docx. No client data.
     """
     app = ('<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
