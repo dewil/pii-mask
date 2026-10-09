@@ -38,3 +38,27 @@ DOCX above. Do not claim application acceptance or live-defect validation.
 - pii_mask/docx.py: 80aaf4930a5df3282af03fdaac87b5098a7adeed807e440337b73b0594ae04ae
 - pii_mask/xlsx.py: 0cb091aa45e36c53fba5160c2fa4c34bf2e0e123f0379464d28f4d4e2e8fc44d
 - pii_mask/office_xml.py: 7830cf471a333d3f8d6ab97d21a6477eb509765c60f129685c7e054c6b44740f
+
+## Repeat after review fixes R1-R3 and self-closing regression
+
+Repeated complete DOCX validation: PASS (15/17 parts unchanged), XML/deletion
+status/id/date/visible text/metadata all checked. python-docx reopened output.
+Repeated real local XLSX validation: PASS (13/15 parts unchanged), temporary
+output again removed from encrypted directory; no mapping saved or printed.
+
+The first repeat caught `<Manager/>` causing AttributeError in property cleanup;
+independent regression is committed as 89808a2 and the corrected repeat passes.
+
+Packaging: `python -m pip wheel --no-deps --no-build-isolation`, exit 0;
+wheel installed with `pip install --upgrade --no-deps --no-compile --target` in
+an isolated /tmp directory, not production. docx/xlsx/office_xml bytes all match
+the worktree; installed package imports checked outside repository; complete
+synthetic DOCX masking succeeds.
+
+Final wheel SHA256: 7ee5b93bcda996264dd9099333df25dfbd05882d0578bc5916451c41d8282fad.
+
+Repeated code hashes:
+
+- pii_mask/docx.py: 80aaf4930a5df3282af03fdaac87b5098a7adeed807e440337b73b0594ae04ae
+- pii_mask/xlsx.py: 3a8e81efe671a7effc1f7b8ee2ddd4863d24e36d496030b446d3fd108d49f19a
+- pii_mask/office_xml.py: e5f426334b261d4f3a91dbef0695284d87df935a229b4c23a4cc1bda109a22bf
