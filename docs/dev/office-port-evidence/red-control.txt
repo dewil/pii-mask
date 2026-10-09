@@ -1,0 +1,30 @@
+F.FFFFFFFFFF.FFFFFFFFFF                                                  [100%]
+=============================== warnings summary ===============================
+pii-office-red-control-20261009/test_office_port_docx.py::test_text_after_textbox_is_masked
+  /data/git/pii-mask/.venv/lib/python3.12/site-packages/pymorphy2/analyzer.py:114: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+    import pkg_resources
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_text_after_textbox_is_masked
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_deleted_revision_text_is_masked
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_field_code_is_masked
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_other_field_in_paragraph_is_untouched
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_revision_and_comment_authors_are_cleared
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_text_outside_paragraph_refuses
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_self_closing_tags_do_not_swallow_text
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_external_link_target_is_masked
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_simple_field_code_is_masked
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_document_properties_are_cleared
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_deleted_text_stays_under_original_revision
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_xml_escaping_in_simple_field_and_relationship
+FAILED pii-office-red-control-20261009/test_office_port_docx.py::test_metadata_cleanup_creates_no_registry_entries
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_sheet_header_and_footer_are_masked
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_threaded_comments_are_masked
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_comment_persons_are_cleared
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_header_format_codes_and_xml_entities_survive
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_threaded_comment_ids_and_escaped_text_survive
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_workbook_properties_cleared_without_registry_entries
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_text_outside_supported_cell_container_refuses
+FAILED pii-office-red-control-20261009/test_office_port_xlsx.py::test_legacy_comment_author_is_cleared_without_restorable_identity
+21 failed, 2 passed, 1 warning in 5.17s
